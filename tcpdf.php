@@ -13444,39 +13444,21 @@ class TCPDF {
 	 * @since 4.6.008 (2009-05-07)
 	 */
 	protected function _putsignature() {
-	    // Mantém compatibilidade: assina se for EXTERNAL ou se tiver certificado local
 	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['sign_type']) OR $this->signature_data['sign_type'] !== 'EXTERNAL'))) {
 	        return;
 	    }
-	
 	    $sigobjid = ($this->sig_obj_id + 1);
-	    
-	    // REGISTRO NO CATÁLOGO: O elo perdido para a assinatura aparecer no Adobe
-	    $this->sig_fields[] = $sigobjid; 
-	
+	    $this->sig_fields[] = $sigobjid; // REGISTRO NO CATÁLOGO GLOBAL
 	    $out = $this->_getobj($sigobjid)."\n";
-	    $out .= '<< /Type /Sig';
-	    $out .= ' /Filter /Adobe.PPKLite';
-	    $out .= ' /SubFilter /adbe.pkcs7.detached';
+	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
-	
-	    if (isset($this->signature_data['info']['Name'])) {
-	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
-	    }
-	    if (isset($this->signature_data['info']['Location'])) {
-	        $out .= ' /Location '.$this->_textstring($this->signature_data['info']['Location'], $sigobjid);
-	    }
-	    if (isset($this->signature_data['info']['Reason'])) {
-	        $out .= ' /Reason '.$this->_textstring($this->signature_data['info']['Reason'], $sigobjid);
-	    }
-	    
+	    if (isset($this->signature_data['info']['Name'])) $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
 	    $out .= ' /M '.$this->_datestring($sigobjid, $this->doc_modification_timestamp);
 	    $out .= ' >>';
 	    $out .= "\n".'endobj';
 	    $this->_out($out);
 	}
-
 	/**
 	 * Set User's Rights for PDF Reader
 	 * WARNING: This is experimental and currently do not work.
