@@ -13444,16 +13444,15 @@ class TCPDF {
 	 * @since 4.6.008 (2009-05-07)
 	 */
 	protected function _putsignature() {
-	    // ALTERAÇÃO COMPATÍVEL:
-	    // 1. Se não houver ordem de assinar ($this->sign), para.
-	    // 2. Se não for EXTERNAL e não tiver cert_type (assinatura padrão), para.
+	    // Liberamos a execução para o modo EXTERNAL mesmo sem certificado local
 	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['sign_type']) OR $this->signature_data['sign_type'] !== 'EXTERNAL'))) {
 	        return;
 	    }
 	
 	    $sigobjid = ($this->sig_obj_id + 1);
 	    
-	    // Registra o campo de assinatura no catálogo global (para aparecer no Adobe)
+	    // ESTA LINHA É O SEGREDO: Registra o ID da assinatura na lista global de campos
+	    // Sem isso, o objeto existe no arquivo mas o Adobe não o "vê".
 	    $this->sig_fields[] = $sigobjid;
 	
 	    $out = $this->_getobj($sigobjid)."\n";
@@ -13461,23 +13460,9 @@ class TCPDF {
 	    $out .= ' /Filter /Adobe.PPKLite';
 	    $out .= ' /SubFilter /adbe.pkcs7.detached';
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
-	    $out .= ' /Contents<'.str_repeat('0', $this->signature_max_length).'>';
+	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
 	
-	    // Referência de aprovação ou certificação
-	    if (empty($this->signature_data['approval']) OR ($this->signature_data['approval'] != 'A')) {
-	        $out .= ' /Reference [';
-	        $out .= ' << /Type /SigRef';
-	        if (isset($this->signature_data['cert_type']) && $this->signature_data['cert_type'] > 0) {
-	            $out .= ' /TransformMethod /DocMDP';
-	            $out .= ' /TransformParams << /Type /TransformParams /P '.$this->signature_data['cert_type'].' /V /1.2 >>';
-	        } else {
-	            $out .= ' /TransformMethod /UR3';
-	            $out .= ' /TransformParams << /Type /TransformParams /V /2.2 >>';
-	        }
-	        $out .= ' >> ]';
-	    }
-	
-	    // Metadados (Name, Reason, etc)
+	    // Metadados do Assinante
 	    if (isset($this->signature_data['info']['Name']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Name'])) {
 	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
 	    }
@@ -13486,9 +13471,6 @@ class TCPDF {
 	    }
 	    if (isset($this->signature_data['info']['Reason']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Reason'])) {
 	        $out .= ' /Reason '.$this->_textstring($this->signature_data['info']['Reason'], $sigobjid);
-	    }
-	    if (isset($this->signature_data['info']['ContactInfo']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['ContactInfo'])) {
-	        $out .= ' /ContactInfo '.$this->_textstring($this->signature_data['info']['ContactInfo'], $sigobjid);
 	    }
 	    
 	    $out .= ' /M '.$this->_datestring($sigobjid, $this->doc_modification_timestamp);
