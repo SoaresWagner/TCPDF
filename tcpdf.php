@@ -13444,44 +13444,40 @@ class TCPDF {
 	 * @since 4.6.008 (2009-05-07)
 	 */
 	protected function _putsignature() {
-	    // ALTERAÇÃO CRUCIAL: Adicionamos a verificação do modo EXTERNAL
-	    // Se for EXTERNAL, ele ignora a falta de certificado e prossegue com a escrita do objeto
-	    if ((!$this->sign) OR (!isset($this->signature_data['cert_type']) && $this->signature_data['sign_type'] !== 'EXTERNAL')) {
+	    // ALTERAÇÃO COMPATÍVEL:
+	    // 1. Se não houver ordem de assinar ($this->sign), para.
+	    // 2. Se não for EXTERNAL e não tiver cert_type (assinatura padrão), para.
+	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['sign_type']) OR $this->signature_data['sign_type'] !== 'EXTERNAL'))) {
 	        return;
 	    }
 	
 	    $sigobjid = ($this->sig_obj_id + 1);
+	    
+	    // Registra o campo de assinatura no catálogo global (para aparecer no Adobe)
+	    $this->sig_fields[] = $sigobjid;
+	
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig';
 	    $out .= ' /Filter /Adobe.PPKLite';
 	    $out .= ' /SubFilter /adbe.pkcs7.detached';
-	    
-	    // Aqui ele usa as tags /ADBE_M1, M2, M3 que o Controller vai substituir
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
-	    
-	    // Cria o buraco de 20.000 zeros que o Controller vai localizar
 	    $out .= ' /Contents<'.str_repeat('0', $this->signature_max_length).'>';
 	
+	    // Referência de aprovação ou certificação
 	    if (empty($this->signature_data['approval']) OR ($this->signature_data['approval'] != 'A')) {
 	        $out .= ' /Reference [';
 	        $out .= ' << /Type /SigRef';
-	        if ($this->signature_data['cert_type'] > 0) {
+	        if (isset($this->signature_data['cert_type']) && $this->signature_data['cert_type'] > 0) {
 	            $out .= ' /TransformMethod /DocMDP';
 	            $out .= ' /TransformParams << /Type /TransformParams /P '.$this->signature_data['cert_type'].' /V /1.2 >>';
 	        } else {
 	            $out .= ' /TransformMethod /UR3';
-	            $out .= ' /TransformParams << /Type /TransformParams /V /2.2';
-	            if (!TCPDF_STATIC::empty_string($this->ur['document'])) { $out .= ' /Document['.$this->ur['document'].']'; }
-	            if (!TCPDF_STATIC::empty_string($this->ur['form'])) { $out .= ' /Form['.$this->ur['form'].']'; }
-	            if (!TCPDF_STATIC::empty_string($this->ur['signature'])) { $out .= ' /Signature['.$this->ur['signature'].']'; }
-	            if (!TCPDF_STATIC::empty_string($this->ur['annots'])) { $out .= ' /Annots['.$this->ur['annots'].']'; }
-	            if (!TCPDF_STATIC::empty_string($this->ur['ef'])) { $out .= ' /EF['.$this->ur['ef'].']'; }
-	            if (!TCPDF_STATIC::empty_string($this->ur['formex'])) { $out .= ' /FormEX['.$this->ur['formex'].']'; }
-	            $out .= ' >>';
+	            $out .= ' /TransformParams << /Type /TransformParams /V /2.2 >>';
 	        }
-	        $out .= ' ]';
+	        $out .= ' >> ]';
 	    }
 	
+	    // Metadados (Name, Reason, etc)
 	    if (isset($this->signature_data['info']['Name']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Name'])) {
 	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
 	    }
