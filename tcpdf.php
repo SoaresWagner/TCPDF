@@ -13444,74 +13444,61 @@ class TCPDF {
 	 * @since 4.6.008 (2009-05-07)
 	 */
 	protected function _putsignature() {
-		if ((!$this->sign) OR (!isset($this->signature_data['cert_type']))) {
-			return;
-		}
-		$sigobjid = ($this->sig_obj_id + 1);
-		$out = $this->_getobj($sigobjid)."\n";
-		$out .= '<< /Type /Sig';
-		$out .= ' /Filter /Adobe.PPKLite';
-		$out .= ' /SubFilter /adbe.pkcs7.detached';
-		$out .= ' '.TCPDF_STATIC::$byterange_string;
-		$out .= ' /Contents<'.str_repeat('0', $this->signature_max_length).'>';
-		if (empty($this->signature_data['approval']) OR ($this->signature_data['approval'] != 'A')) {
-			$out .= ' /Reference ['; // array of signature reference dictionaries
-			$out .= ' << /Type /SigRef';
-			if ($this->signature_data['cert_type'] > 0) {
-				$out .= ' /TransformMethod /DocMDP';
-				$out .= ' /TransformParams <<';
-				$out .= ' /Type /TransformParams';
-				$out .= ' /P '.$this->signature_data['cert_type'];
-				$out .= ' /V /1.2';
-			} else {
-				$out .= ' /TransformMethod /UR3';
-				$out .= ' /TransformParams <<';
-				$out .= ' /Type /TransformParams';
-				$out .= ' /V /2.2';
-				if (!TCPDF_STATIC::empty_string($this->ur['document'])) {
-					$out .= ' /Document['.$this->ur['document'].']';
-				}
-				if (!TCPDF_STATIC::empty_string($this->ur['form'])) {
-					$out .= ' /Form['.$this->ur['form'].']';
-				}
-				if (!TCPDF_STATIC::empty_string($this->ur['signature'])) {
-					$out .= ' /Signature['.$this->ur['signature'].']';
-				}
-				if (!TCPDF_STATIC::empty_string($this->ur['annots'])) {
-					$out .= ' /Annots['.$this->ur['annots'].']';
-				}
-				if (!TCPDF_STATIC::empty_string($this->ur['ef'])) {
-					$out .= ' /EF['.$this->ur['ef'].']';
-				}
-				if (!TCPDF_STATIC::empty_string($this->ur['formex'])) {
-					$out .= ' /FormEX['.$this->ur['formex'].']';
-				}
-			}
-			$out .= ' >>'; // close TransformParams
-			// optional digest data (values must be calculated and replaced later)
-			//$out .= ' /Data ********** 0 R';
-			//$out .= ' /DigestMethod/MD5';
-			//$out .= ' /DigestLocation[********** 34]';
-			//$out .= ' /DigestValue<********************************>';
-			$out .= ' >>';
-			$out .= ' ]'; // end of reference
-		}
-		if (isset($this->signature_data['info']['Name']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Name'])) {
-			$out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
-		}
-		if (isset($this->signature_data['info']['Location']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Location'])) {
-			$out .= ' /Location '.$this->_textstring($this->signature_data['info']['Location'], $sigobjid);
-		}
-		if (isset($this->signature_data['info']['Reason']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Reason'])) {
-			$out .= ' /Reason '.$this->_textstring($this->signature_data['info']['Reason'], $sigobjid);
-		}
-		if (isset($this->signature_data['info']['ContactInfo']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['ContactInfo'])) {
-			$out .= ' /ContactInfo '.$this->_textstring($this->signature_data['info']['ContactInfo'], $sigobjid);
-		}
-		$out .= ' /M '.$this->_datestring($sigobjid, $this->doc_modification_timestamp);
-		$out .= ' >>';
-		$out .= "\n".'endobj';
-		$this->_out($out);
+	    // ALTERAÇÃO CRUCIAL: Adicionamos a verificação do modo EXTERNAL
+	    // Se for EXTERNAL, ele ignora a falta de certificado e prossegue com a escrita do objeto
+	    if ((!$this->sign) OR (!isset($this->signature_data['cert_type']) && $this->signature_data['sign_type'] !== 'EXTERNAL')) {
+	        return;
+	    }
+	
+	    $sigobjid = ($this->sig_obj_id + 1);
+	    $out = $this->_getobj($sigobjid)."\n";
+	    $out .= '<< /Type /Sig';
+	    $out .= ' /Filter /Adobe.PPKLite';
+	    $out .= ' /SubFilter /adbe.pkcs7.detached';
+	    
+	    // Aqui ele usa as tags /ADBE_M1, M2, M3 que o Controller vai substituir
+	    $out .= ' '.TCPDF_STATIC::$byterange_string;
+	    
+	    // Cria o buraco de 20.000 zeros que o Controller vai localizar
+	    $out .= ' /Contents<'.str_repeat('0', $this->signature_max_length).'>';
+	
+	    if (empty($this->signature_data['approval']) OR ($this->signature_data['approval'] != 'A')) {
+	        $out .= ' /Reference [';
+	        $out .= ' << /Type /SigRef';
+	        if ($this->signature_data['cert_type'] > 0) {
+	            $out .= ' /TransformMethod /DocMDP';
+	            $out .= ' /TransformParams << /Type /TransformParams /P '.$this->signature_data['cert_type'].' /V /1.2 >>';
+	        } else {
+	            $out .= ' /TransformMethod /UR3';
+	            $out .= ' /TransformParams << /Type /TransformParams /V /2.2';
+	            if (!TCPDF_STATIC::empty_string($this->ur['document'])) { $out .= ' /Document['.$this->ur['document'].']'; }
+	            if (!TCPDF_STATIC::empty_string($this->ur['form'])) { $out .= ' /Form['.$this->ur['form'].']'; }
+	            if (!TCPDF_STATIC::empty_string($this->ur['signature'])) { $out .= ' /Signature['.$this->ur['signature'].']'; }
+	            if (!TCPDF_STATIC::empty_string($this->ur['annots'])) { $out .= ' /Annots['.$this->ur['annots'].']'; }
+	            if (!TCPDF_STATIC::empty_string($this->ur['ef'])) { $out .= ' /EF['.$this->ur['ef'].']'; }
+	            if (!TCPDF_STATIC::empty_string($this->ur['formex'])) { $out .= ' /FormEX['.$this->ur['formex'].']'; }
+	            $out .= ' >>';
+	        }
+	        $out .= ' ]';
+	    }
+	
+	    if (isset($this->signature_data['info']['Name']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Name'])) {
+	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
+	    }
+	    if (isset($this->signature_data['info']['Location']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Location'])) {
+	        $out .= ' /Location '.$this->_textstring($this->signature_data['info']['Location'], $sigobjid);
+	    }
+	    if (isset($this->signature_data['info']['Reason']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Reason'])) {
+	        $out .= ' /Reason '.$this->_textstring($this->signature_data['info']['Reason'], $sigobjid);
+	    }
+	    if (isset($this->signature_data['info']['ContactInfo']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['ContactInfo'])) {
+	        $out .= ' /ContactInfo '.$this->_textstring($this->signature_data['info']['ContactInfo'], $sigobjid);
+	    }
+	    
+	    $out .= ' /M '.$this->_datestring($sigobjid, $this->doc_modification_timestamp);
+	    $out .= ' >>';
+	    $out .= "\n".'endobj';
+	    $this->_out($out);
 	}
 
 	/**
