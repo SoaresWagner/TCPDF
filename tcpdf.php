@@ -13444,16 +13444,12 @@ class TCPDF {
 	 * @since 4.6.008 (2009-05-07)
 	 */
 	protected function _putsignature() {
-	    // Liberamos a execução para o modo EXTERNAL mesmo sem certificado local
 	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['sign_type']) OR $this->signature_data['sign_type'] !== 'EXTERNAL'))) {
 	        return;
 	    }
 	
 	    $sigobjid = ($this->sig_obj_id + 1);
-	    
-	    // ESTA LINHA É O SEGREDO: Registra o ID da assinatura na lista global de campos
-	    // Sem isso, o objeto existe no arquivo mas o Adobe não o "vê".
-	    $this->sig_fields[] = $sigobjid;
+	    $this->sig_fields[] = $sigobjid; // Força o registro no catálogo do PDF
 	
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig';
@@ -13462,14 +13458,13 @@ class TCPDF {
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
 	
-	    // Metadados do Assinante
-	    if (isset($this->signature_data['info']['Name']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Name'])) {
+	    if (isset($this->signature_data['info']['Name'])) {
 	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
 	    }
-	    if (isset($this->signature_data['info']['Location']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Location'])) {
+	    if (isset($this->signature_data['info']['Location'])) {
 	        $out .= ' /Location '.$this->_textstring($this->signature_data['info']['Location'], $sigobjid);
 	    }
-	    if (isset($this->signature_data['info']['Reason']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Reason'])) {
+	    if (isset($this->signature_data['info']['Reason'])) {
 	        $out .= ' /Reason '.$this->_textstring($this->signature_data['info']['Reason'], $sigobjid);
 	    }
 	    
