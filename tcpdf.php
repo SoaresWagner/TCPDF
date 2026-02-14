@@ -2052,6 +2052,23 @@ class TCPDF {
 		$this->_destroy(true);
 	}
 
+	// Dentro da sua classe que estende o TCPDF ou no seu Fork
+	public function prepararEstruturaPades($medico) {
+	    $info = [
+	        'Name' => $medico->nome,
+	        'Location' => 'Admed Sistemas',
+	        'Reason' => 'Assinatura Digital',
+	        'ContactInfo' => 'https://admedsistemas.com.br',
+	    ];
+	
+	    // Forçamos o tipo de assinatura de aprovação (sem lock)
+	    // 1 = Signature, 'A' = Approval
+	    $this->setSignature(__FILE__, 'EXTERNAL', 'password', '', 1, $info, 'A');
+	    
+	    // IMPORTANTE: Definimos o tamanho e forçamos o TCPDF a manter o objeto
+	    $this->signature_max_length = 20000;
+	}
+
 	/**
 	 * Set the units of measure for the document.
 	 * @param string $unit User measure unit. Possible values are:<ul><li>pt: point</li><li>mm: millimeter (default)</li><li>cm: centimeter</li><li>in: inch</li></ul><br />A point equals 1/72 of inch, that is to say about 0.35 mm (an inch being 2.54 cm). This is a very common unit in typography; font sizes are expressed in that unit.
