@@ -7702,18 +7702,18 @@ class TCPDF {
 
 			// --- HACK ADMED INÍCIO: SUPORTE A ASSINATURA REMOTA (VIDAAS) ---
 			if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
-			    // 1. Pegamos o placeholder original (que tem 47 caracteres por padrão no TCPDF)
-			    $original = TCPDF_STATIC::$byterange_string;
-			    $len = strlen($original);
-			
-			    // 2. Criamos a nossa string com marcadores
-			    $marker = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
+			    // 1. Nossa string base (o que queremos injetar)
+			    $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
 			    
-			    // 3. TRAVA DE SEGURANÇA: Forçamos o tamanho a ser IDÊNTICO ao original
-			    // Se sobrar espaço, ele preenche com ' ', mantendo o tamanho fixo.
-			    $fixed_marker = str_pad($marker, $len, ' ', STR_PAD_RIGHT);
+			    // 2. O Segredo: Pegamos o placeholder original que o TCPDF usou para calcular o XREF
+			    $original_placeholder = TCPDF_STATIC::$byterange_string;
+			    $tamanho_original = strlen($original_placeholder);
 			    
-			    $pdfdoc = str_replace($original, $fixed_marker, $pdfdoc);
+			    // 3. Travamos o tamanho: Se a nossa string for menor, preenchemos com espaços
+			    // Isso garante que o startxref continue apontando para o byte exato.
+			    $new_byterange = str_pad($marker_string, $tamanho_original, ' ', STR_PAD_RIGHT);
+			    
+			    $pdfdoc = str_replace($original_placeholder, $new_byterange, $pdfdoc);
 			    
 			    $this->buffer = $pdfdoc;
 			    $this->bufferlen = strlen($this->buffer);
