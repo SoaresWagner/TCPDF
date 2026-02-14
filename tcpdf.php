@@ -7702,18 +7702,15 @@ class TCPDF {
 
 			// --- HACK ADMED INÍCIO: SUPORTE A ASSINATURA REMOTA (VIDAAS) ---
 			if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
-			    // 1. String com marcadores (Total de 47 caracteres)
-			    $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
-			    
-			    // 2. Garantimos o tamanho exato do placeholder original do TCPDF
-			    $original_len = strlen(TCPDF_STATIC::$byterange_string); // Normalmente 47
-			    $new_byterange = str_pad($marker_string, $original_len, ' ', STR_PAD_RIGHT);
-			    
-			    $pdfdoc = str_replace(TCPDF_STATIC::$byterange_string, $new_byterange, $pdfdoc);
-			    
-			    $this->buffer = $pdfdoc;
-			    $this->bufferlen = strlen($this->buffer);
-			    if ($dest == 'S') { return $this->getBuffer(); }
+				// Esta string tem EXATAMENTE 47 caracteres. Conte cada um deles:
+				// / B y t e R a n g e [ 0   @ L - M A R K E R @   @ R - M A R K E R @   @ N - M A R K E R @ ]
+				$marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
+				
+				$pdfdoc = str_replace(TCPDF_STATIC::$byterange_string, $marker_string, $pdfdoc);
+				
+				$this->buffer = $pdfdoc;
+				$this->bufferlen = strlen($this->buffer);
+				if ($dest == 'S') { return $this->getBuffer(); }
 			} else {
 				// --- FLUXO ORIGINAL DO TCPDF (PARA SEU CERTIFICADO PFX) ---
 				$byte_range = array();
