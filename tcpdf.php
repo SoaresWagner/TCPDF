@@ -7701,17 +7701,18 @@ class TCPDF {
 			$byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 
 			// --- HACK ADMED INÍCIO: SUPORTE A ASSINATURA REMOTA (VIDAAS) ---
-			// --- HACK ADMED: Marcadores de exatos 10 caracteres para não deslocar o XREF ---
 			if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
-				// Cada marcador aqui tem exatamente 10 caracteres
-				$byterange = '/ByteRange[0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
-				$byterange .= str_repeat(' ', ($byterange_string_len - strlen($byterange)));
-				$pdfdoc = str_replace(TCPDF_STATIC::$byterange_string, $byterange, $pdfdoc);
-				
-				$this->buffer = $pdfdoc;
-				$this->bufferlen = strlen($this->buffer);
-				
-				if ($dest == 'S') { return $this->getBuffer(); }
+			    // Esta string tem exatamente 47 caracteres para não quebrar a tabela XREF
+			    $byterange = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
+			    
+			    // Forçamos o preenchimento para garantir que o tamanho seja idêntico ao original
+			    $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
+			    $byterange = str_pad($byterange, $byterange_string_len, ' ', STR_PAD_RIGHT);
+			    
+			    $pdfdoc = str_replace(TCPDF_STATIC::$byterange_string, $byterange, $pdfdoc);
+			    $this->buffer = $pdfdoc;
+			    $this->bufferlen = strlen($this->buffer);
+			    if ($dest == 'S') { return $this->getBuffer(); }
 			} else {
 				// --- FLUXO ORIGINAL DO TCPDF (PARA SEU CERTIFICADO PFX) ---
 				$byte_range = array();
