@@ -13444,12 +13444,15 @@ class TCPDF {
 	 * @since 4.6.008 (2009-05-07)
 	 */
 	protected function _putsignature() {
+	    // CONDICIONAL HÍBRIDA: Libera se for ordem de assinar E (tiver certificado OU for modo EXTERNAL)
 	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['sign_type']) OR $this->signature_data['sign_type'] !== 'EXTERNAL'))) {
 	        return;
 	    }
 	
 	    $sigobjid = ($this->sig_obj_id + 1);
-	    $this->sig_fields[] = $sigobjid; // Força o registro no catálogo do PDF
+	    
+	    // REGISTRO NO CATÁLOGO: Essencial para o Adobe "enxergar" o campo
+	    $this->sig_fields[] = $sigobjid; 
 	
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig';
@@ -13458,6 +13461,7 @@ class TCPDF {
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
 	
+	    // Metadados
 	    if (isset($this->signature_data['info']['Name'])) {
 	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
 	    }
