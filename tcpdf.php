@@ -7701,14 +7701,19 @@ class TCPDF {
 			$byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 
 			// --- HACK ADMED INÍCIO: SUPORTE A ASSINATURA REMOTA (VIDAAS) ---
-			// --- ARQUIVO: tcpdf.php (No seu Fork) ---
 			if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
-			    // ESTA STRING TEM EXATAMENTE 47 CARACTERES (Conte os espaços!)
-			    //             12345678901234567890123456789012345678901234567
-			    $marker_string = '/ByteRange [ 0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
+			    // 1. Criamos a string base com os marcadores
+			    $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
 			    
-			    // Substituição direta que mantém o tamanho do arquivo íntegro
-			    $pdfdoc = str_replace(TCPDF_STATIC::$byterange_string, $marker_string, $pdfdoc);
+			    // 2. BUSCA O TAMANHO REAL: Pegamos o tamanho da string original do TCPDF
+			    $original_placeholder = TCPDF_STATIC::$byterange_string;
+			    $original_len = strlen($original_placeholder);
+			    
+			    // 3. AJUSTE DINÂMICO: Preenchemos com espaços para garantir que o tamanho seja IDÊNTICO
+			    $new_byterange = str_pad($marker_string, $original_len, ' ', STR_PAD_RIGHT);
+			    
+			    // 4. Substituição segura
+			    $pdfdoc = str_replace($original_placeholder, $new_byterange, $pdfdoc);
 			    
 			    $this->buffer = $pdfdoc;
 			    $this->bufferlen = strlen($this->buffer);
