@@ -13444,16 +13444,31 @@ class TCPDF {
 	 * @since 4.6.008 (2009-05-07)
 	 */
 	protected function _putsignature() {
+	    // Validação para permitir o modo EXTERNAL
 	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['sign_type']) OR $this->signature_data['sign_type'] !== 'EXTERNAL'))) {
 	        return;
 	    }
+	
 	    $sigobjid = ($this->sig_obj_id + 1);
-	    $this->sig_fields[] = $sigobjid; // REGISTRO NO CATÁLOGO GLOBAL
+	    
+	    // REGISTRO OBRIGATÓRIO: Sem isso o Adobe não reconhece o campo de assinatura
+	    $this->sig_fields[] = $sigobjid; 
+	
 	    $out = $this->_getobj($sigobjid)."\n";
-	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
+	    $out .= '<< /Type /Sig';
+	    $out .= ' /Filter /Adobe.PPKLite';
+	    $out .= ' /SubFilter /adbe.pkcs7.detached';
+	    
+	    // Tags que o Controller usará para os cálculos de ByteRange
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
+	    
+	    // Placeholder de 20.000 zeros que será preenchido pelo Vidaas
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
-	    if (isset($this->signature_data['info']['Name'])) $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
+	
+	    if (isset($this->signature_data['info']['Name'])) {
+	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
+	    }
+	    
 	    $out .= ' /M '.$this->_datestring($sigobjid, $this->doc_modification_timestamp);
 	    $out .= ' >>';
 	    $out .= "\n".'endobj';
