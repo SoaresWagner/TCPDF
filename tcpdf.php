@@ -7712,7 +7712,7 @@ class TCPDF {
 	        $pdfdoc = $this->getBuffer();
 	        $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 	
-	        // --- MUNDO EXTERNAL (VIDAAS) ---
+	        // --- BLOCO VIDAAS (EXTERNAL) ---
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $pdfdoc = substr($pdfdoc, 0, -1);
 	            $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
@@ -7722,24 +7722,27 @@ class TCPDF {
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
 	        } 
-	        // --- MUNDO PFX (ASSINATURA BINÁRIA) ---
+	        // --- BLOCO PFX (ASSINATURA BINÁRIA PURA) ---
 	        else {
+	            // Localiza o buraco dinamicamente no buffer bruto
 	            $pos_byterange = strpos($pdfdoc, TCPDF_STATIC::$byterange_string);
 	            $pos_contents = strpos($pdfdoc, '/Contents', $pos_byterange);
 	            $start_hole = strpos($pdfdoc, '<', $pos_contents); 
 	            $end_hole = strpos($pdfdoc, '>', $start_hole) + 1;
-	            $hole_len = ($end_hole - $start_hole) - 2;
+	            $actual_hole_size = ($end_hole - $start_hole) - 2;
 	
+	            // Divide o ficheiro em Part1 e Part2 sem remover o byte final
 	            $part1 = substr($pdfdoc, 0, $start_hole);
 	            $part2 = substr($pdfdoc, $end_hole);
 	
-	            // ByteRange MILIMÉTRICO
-	            $b1 = strlen($part1);
-	            $b2 = $b1 + $hole_len + 2;
-	            $br_string = sprintf('/ByteRange [0 %u %u %u]', $b1, $b2, strlen($part2));
-	            $br_string = str_pad($br_string, $byterange_string_len, ' ', STR_PAD_RIGHT);
-	            
-	            $part1 = str_replace(TCPDF_STATIC::$byterange_string, $br_string, $part1);
+	            // ByteRange calculado sobre o comprimento real das strings
+	            $br = array(0, strlen($part1), strlen($part1) + $actual_hole_size + 2, strlen($part2));
+	
+	            // Atualiza o ByteRange na Part1 mantendo o comprimento fixo
+	            $byterange_val = sprintf('/ByteRange [%u %u %u %u]', $br[0], $br[1], $br[2], $br[3]);
+	            $byterange_val = str_pad($byterange_val, $byterange_string_len, ' ', STR_PAD_RIGHT);
+	            $part1 = str_replace(TCPDF_STATIC::$byterange_string, $byterange_val, $part1);
+	
 	            $pdfdoc_to_sign = $part1 . $part2;
 	
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
@@ -7757,13 +7760,14 @@ class TCPDF {
 	            
 	            $signature = $this->applyTSA($signature);
 	            $signature = strtoupper(current(unpack('H*', $signature)));
-	            $signature = str_pad($signature, $hole_len, '0', STR_PAD_RIGHT);
 	            
-	            if (strlen($signature) > $hole_len) {
-	                $signature = substr($signature, 0, $hole_len);
+	            // Padding milimétrico para preencher o buraco hexadecimal
+	            $signature = str_pad($signature, $actual_hole_size, '0', STR_PAD_RIGHT);
+	            if (strlen($signature) > $actual_hole_size) {
+	                $signature = substr($signature, 0, $actual_hole_size);
 	            }
 	
-	            // RECONSTRUÇÃO FINAL SEM ALTERAR NADA
+	            // Reconstrução final do buffer
 	            $this->buffer = $part1 . '<' . $signature . '>' . $part2;
 	            $this->bufferlen = strlen($this->buffer);
 	        }
@@ -7772,12 +7776,12 @@ class TCPDF {
 	    switch($dest) {
 	        case 'S': return $this->getBuffer();
 	        case 'I':
-	            // LIMPEZA CRUCIAL PARA O ADOBE: Remove qualquer espaço/lixo do Laravel
-	            if (ob_get_length()) ob_clean(); 
+	            if (ob_get_length()) ob_clean(); // Limpa qualquer lixo de saída do Laravel
 	            header('Content-Type: application/pdf');
 	            header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
 	            header('Content-Disposition: inline; filename="'.$name.'"');
 	            TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
+	            exit; // Mata o processo para nada mais ser injetado no PDF
 	            break;
 	        case 'F':
 	            $f = fopen($name, 'wb');
@@ -7787,6 +7791,7 @@ class TCPDF {
 	    }
 	    return '';
 	}
+	
 	protected static $cleaned_ids = array();
 	/**
 	 * Unset all class variables except the following critical variables.
@@ -13402,9 +13407,11 @@ class TCPDF {
 	
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
+	    
+	    // Placeholder que o Output irá localizar
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
 	    
-	    // O buraco de zeros deve ter exatamente o tamanho reservado
+	    // Reserva o espaço de zeros com o tamanho exato definido no Controller
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
 	
 	    if (isset($this->signature_data['info']['Name'])) {
