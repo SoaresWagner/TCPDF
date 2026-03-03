@@ -7733,7 +7733,7 @@ class TCPDF {
 	            $b2 = $b1 + $hole_len + 2;
 	            $b3 = strlen($part2);
 	
-	            // Injeção com Padding de espaços para manter o offset do XREF intacto
+	            // Injeção com Espaços: Mantém o tamanho total do arquivo IDÊNTICO
 	            $br_real = sprintf('/ByteRange [0 %u %u %u]', $b1, $b2, $b3);
 	            $br_real = str_pad($br_real, $br_marker_len, ' ', STR_PAD_RIGHT);
 	            $part1 = str_replace($br_marker, $br_real, $part1);
@@ -7769,7 +7769,9 @@ class TCPDF {
 	            if (ob_get_length()) ob_clean();
 	            header('Content-Type: application/pdf');
 	            header('Content-Disposition: inline; filename="'.$name.'"');
+	            // IMPORTANTE: Use echo para garantir a saída direta do buffer
 	            echo $this->getBuffer();
+	            flush();
 	            exit;
 	        case 'F':
 	            file_put_contents($name, $this->getBuffer());
@@ -13392,7 +13394,7 @@ class TCPDF {
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
 	    
-	    // MARCADOR FIXO (47 chars): Garante que o XREF não se desloque
+	    // MARCADOR DE TAMANHO FIXO (47 bytes): Não altere o número de zeros
 	    $br_placeholder = '/ByteRange [0 0000000000 0000000000 0000000000]';
 	    $out .= ' '.$br_placeholder;
 	    
