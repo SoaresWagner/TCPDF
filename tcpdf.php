@@ -7712,7 +7712,7 @@ class TCPDF {
 	        $pdfdoc = $this->getBuffer();
 	        $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 	
-	        // --- BLOCO EXTERNAL (VIDAAS) ---
+	        // --- MUNDO EXTERNAL (VIDAAS) ---
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $pdfdoc = substr($pdfdoc, 0, -1);
 	            $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
@@ -7722,31 +7722,25 @@ class TCPDF {
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
 	        } 
-	        // --- BLOCO PFX (ASSINATURA LOCAL) ---
+	        // --- MUNDO PFX (ASSINATURA LOCAL) ---
 	        else {
-	            // Localiza o buraco dinamicamente
 	            $pos_byterange = strpos($pdfdoc, TCPDF_STATIC::$byterange_string);
 	            $pos_contents = strpos($pdfdoc, '/Contents', $pos_byterange);
 	            $start_hole = strpos($pdfdoc, '<', $pos_contents); 
 	            $end_hole = strpos($pdfdoc, '>', $start_hole) + 1;
-	            $hole_len = ($end_hole - $start_hole) - 2;
+	            $actual_hole_size = ($end_hole - $start_hole) - 2;
 	
-	            // Divide o PDF em duas partes (antes e depois da assinatura)
+	            // Divide o arquivo em partes binárias para não ter erro de deslocamento
 	            $part1 = substr($pdfdoc, 0, $start_hole);
 	            $part2 = substr($pdfdoc, $end_hole);
 	
-	            // Calcula o ByteRange real baseado no tamanho das strings
-	            $b0 = 0;
-	            $b1 = strlen($part1); // Fim da primeira parte (início da assinatura)
-	            $b2 = $b1 + $hole_len + 2; // Início da segunda parte (após o '>')
-	            $b3 = strlen($part2); // Tamanho da parte final
+	            // ByteRange calculado sobre o comprimento real dos bytes
+	            $br = array(0, strlen($part1), strlen($part1) + $actual_hole_size + 2, strlen($part2));
 	
-	            // Injeta o ByteRange real na Part1
-	            $br_string = sprintf('/ByteRange [%u %u %u %u]', $b0, $b1, $b2, $b3);
-	            $br_string = str_pad($br_string, $byterange_string_len, ' ', STR_PAD_RIGHT);
-	            $part1 = str_replace(TCPDF_STATIC::$byterange_string, $br_string, $part1);
+	            $byterange_val = sprintf('/ByteRange [%u %u %u %u]', $br[0], $br[1], $br[2], $br[3]);
+	            $byterange_val = str_pad($byterange_val, $byterange_string_len, ' ', STR_PAD_RIGHT);
+	            $part1 = str_replace(TCPDF_STATIC::$byterange_string, $byterange_val, $part1);
 	
-	            // O documento que será assinado é a junção das partes (sem o buraco de zeros)
 	            $pdfdoc_to_sign = $part1 . $part2;
 	
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
@@ -7766,13 +7760,14 @@ class TCPDF {
 	            $signature = $this->applyTSA($signature);
 	            $signature = strtoupper(current(unpack('H*', $signature)));
 	            
-	            // Ajusta a assinatura para o tamanho exato do buraco
-	            $signature = str_pad($signature, $hole_len, '0', STR_PAD_RIGHT);
-	            if (strlen($signature) > $hole_len) {
-	                $signature = substr($signature, 0, $hole_len);
+	            // PADDING: Preenche com zeros se for menor, ou avisa se for maior
+	            if (strlen($signature) > $actual_hole_size) {
+	                // Se isso acontecer, você PRECISA aumentar o signature_max_length no Controller
+	                $signature = substr($signature, 0, $actual_hole_size); 
+	            } else {
+	                $signature = str_pad($signature, $actual_hole_size, '0', STR_PAD_RIGHT);
 	            }
 	
-	            // Reconstrução final do buffer
 	            $this->buffer = $part1 . '<' . $signature . '>' . $part2;
 	            $this->bufferlen = strlen($this->buffer);
 	        }
@@ -13410,6 +13405,9 @@ class TCPDF {
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
+	    
+	    // Aumentamos para 26000 para garantir que PFX + TSA caibam com folga
+	    // O buraco de zeros deve ser exatamente do tamanho do signature_max_length
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
 	
 	    if (isset($this->signature_data['info']['Name'])) {
