@@ -7712,7 +7712,7 @@ class TCPDF {
 	        $pdfdoc = $this->getBuffer();
 	        $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 	
-	        // --- MUNDO EXTERNAL (VIDAAS) ---
+	        // --- BLOCO VIDAAS (EXTERNAL) ---
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $pdfdoc = substr($pdfdoc, 0, -1);
 	            $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
@@ -7722,25 +7722,29 @@ class TCPDF {
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
 	        } 
-	        // --- MUNDO PFX (ASSINATURA LOCAL) ---
+	        // --- BLOCO PFX (ASSINATURA BINÁRIA) ---
 	        else {
+	            // Localização precisa do buraco
 	            $pos_byterange = strpos($pdfdoc, TCPDF_STATIC::$byterange_string);
 	            $pos_contents = strpos($pdfdoc, '/Contents', $pos_byterange);
 	            $start_hole = strpos($pdfdoc, '<', $pos_contents); 
 	            $end_hole = strpos($pdfdoc, '>', $start_hole) + 1;
-	            $actual_hole_size = ($end_hole - $start_hole) - 2;
+	            $hole_len = ($end_hole - $start_hole) - 2;
 	
-	            // Divide o arquivo em partes binárias para não ter erro de deslocamento
+	            // Divide o arquivo sem remover nenhum byte do final (\n)
 	            $part1 = substr($pdfdoc, 0, $start_hole);
 	            $part2 = substr($pdfdoc, $end_hole);
 	
-	            // ByteRange calculado sobre o comprimento real dos bytes
-	            $br = array(0, strlen($part1), strlen($part1) + $actual_hole_size + 2, strlen($part2));
+	            // ByteRange calculado sobre os bytes brutos
+	            $b1 = strlen($part1);
+	            $b2 = $b1 + $hole_len + 2;
+	            $b3 = strlen($part2);
 	
-	            $byterange_val = sprintf('/ByteRange [%u %u %u %u]', $br[0], $br[1], $br[2], $br[3]);
-	            $byterange_val = str_pad($byterange_val, $byterange_string_len, ' ', STR_PAD_RIGHT);
-	            $part1 = str_replace(TCPDF_STATIC::$byterange_string, $byterange_val, $part1);
+	            $br_string = sprintf('/ByteRange [0 %u %u %u]', $b1, $b2, $b3);
+	            $br_string = str_pad($br_string, $byterange_string_len, ' ', STR_PAD_RIGHT);
+	            $part1 = str_replace(TCPDF_STATIC::$byterange_string, $br_string, $part1);
 	
+	            // O que assinamos deve ser EXATAMENTE o que vai para o arquivo
 	            $pdfdoc_to_sign = $part1 . $part2;
 	
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
@@ -7752,22 +7756,21 @@ class TCPDF {
 	            openssl_pkcs7_sign($tempdoc, $tempsign, $this->signature_data['signcert'], array($this->signature_data['privkey'], $this->signature_data['password']), array(), PKCS7_BINARY | PKCS7_DETACHED);
 	            
 	            $signature = file_get_contents($tempsign);
-	            $signature = substr($signature, strlen($pdfdoc_to_sign));
 	            $signature = substr($signature, (strpos($signature, "%%EOF\n\n------") + 13));
 	            $tmparr = explode("\n\n", $signature);
 	            $signature = base64_decode(trim($tmparr[1]));
 	            
+	            // Timestamp e Conversão Hex
 	            $signature = $this->applyTSA($signature);
 	            $signature = strtoupper(current(unpack('H*', $signature)));
 	            
-	            // PADDING: Preenche com zeros se for menor, ou avisa se for maior
-	            if (strlen($signature) > $actual_hole_size) {
-	                // Se isso acontecer, você PRECISA aumentar o signature_max_length no Controller
-	                $signature = substr($signature, 0, $actual_hole_size); 
-	            } else {
-	                $signature = str_pad($signature, $actual_hole_size, '0', STR_PAD_RIGHT);
+	            // Ajuste milimétrico do padding
+	            $signature = str_pad($signature, $hole_len, '0', STR_PAD_RIGHT);
+	            if (strlen($signature) > $hole_len) {
+	                $signature = substr($signature, 0, $hole_len);
 	            }
 	
+	            // Montagem final do buffer
 	            $this->buffer = $part1 . '<' . $signature . '>' . $part2;
 	            $this->bufferlen = strlen($this->buffer);
 	        }
@@ -7776,6 +7779,8 @@ class TCPDF {
 	    switch($dest) {
 	        case 'S': return $this->getBuffer();
 	        case 'I':
+	            // IMPORTANTE: Limpar qualquer lixo no buffer de saída do Laravel
+	            if (ob_get_length()) ob_clean();
 	            header('Content-Type: application/pdf');
 	            header('Content-Disposition: inline; filename="'.$name.'"');
 	            TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
@@ -13395,21 +13400,27 @@ class TCPDF {
 	 * @since 4.6.008 (2009-05-07)
 	 */
 	protected function _putsignature() {
+	    // Validação estrita: se não for para assinar ou se for modo EXTERNAL (Vidaas), sai.
 	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['privkey']) OR $this->signature_data['privkey'] !== 'EXTERNAL'))) {
 	        return;
 	    }
 	
 	    $sigobjid = ($this->sig_obj_id + 1);
+	    
+	    // REGISTRO NO CATÁLOGO: Essencial para o Adobe "ver" a assinatura
 	    $this->sig_fields[] = $sigobjid; 
 	
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
+	    
+	    // Placeholder que o Output usará para calcular os bytes reais
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
 	    
-	    // Aumentamos para 26000 para garantir que PFX + TSA caibam com folga
-	    // O buraco de zeros deve ser exatamente do tamanho do signature_max_length
+	    // O "buraco" onde a assinatura hexadecimal será injetada
+	    // IMPORTANTE: Deve ter exatamente signature_max_length de zeros
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
 	
+	    // Metadados básicos que não interferem no hash
 	    if (isset($this->signature_data['info']['Name'])) {
 	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
 	    }
