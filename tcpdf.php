@@ -7711,9 +7711,9 @@ class TCPDF {
 	    if ($this->sign) {
 	        $pdfdoc = $this->getBuffer();
 	        $br_marker = '/ByteRange [0 0000000000 0000000000 0000000000]';
-	        $br_marker_len = 47; // Tamanho fixo do nosso marcador acima
+	        $br_marker_len = 47; 
 	
-	        // --- MUNDO VIDAAS (EXTERNAL) ---
+	        // --- MUNDO EXTERNAL (VIDAAS) ---
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $pdfdoc = substr($pdfdoc, 0, -1);
 	            $v_marker = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
@@ -7730,23 +7730,23 @@ class TCPDF {
 	            $end_hole = strpos($pdfdoc, '>', $start_hole) + 1;
 	            $hole_len = ($end_hole - $start_hole) - 2;
 	
-	            // Divide em partes binárias
 	            $part1 = substr($pdfdoc, 0, $start_hole);
 	            $part2 = substr($pdfdoc, $end_hole);
 	
-	            // Cálculo dos offsets reais
-	            $b1 = strlen($part1); // Fim da parte 1
-	            $b2 = $b1 + $hole_len + 2; // Início da parte 2
-	            $b3 = strlen($part2); // Tamanho da parte 2
+	            $b1 = strlen($part1);
+	            $b2 = $b1 + $hole_len + 2;
+	            $b3 = strlen($part2);
 	
-	            // Cria o ByteRange real e preenche com espaços até chegar em 47 caracteres
+	            // Injeta os valores reais e preenche com espaços para manter os 47 caracteres
 	            $br_real = sprintf('/ByteRange [0 %u %u %u]', $b1, $b2, $b3);
 	            $br_real = str_pad($br_real, $br_marker_len, ' ', STR_PAD_RIGHT);
 	            
-	            // Substitui APENAS na Part1 para não correr risco de mexer no resto
-	            $part1 = str_replace($br_marker, $br_real, $part1);
+	            // Substituição por posição para evitar erros de duplicidade
+	            $pos_br = strpos($part1, $br_marker);
+	            if ($pos_br !== false) {
+	                $part1 = substr_replace($part1, $br_real, $pos_br, $br_marker_len);
+	            }
 	
-	            // Assina a união das partes
 	            $pdfdoc_to_sign = $part1 . $part2;
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
 	            file_put_contents($tempdoc, $pdfdoc_to_sign);
@@ -7767,7 +7767,6 @@ class TCPDF {
 	                $signature = substr($signature, 0, $hole_len);
 	            }
 	
-	            // Remontagem do buffer: Part1 já contém o ByteRange correto com tamanho fixo
 	            $this->buffer = $part1 . '<' . $signature . '>' . $part2;
 	            $this->bufferlen = strlen($this->buffer);
 	        }
@@ -7776,13 +7775,15 @@ class TCPDF {
 	    switch($dest) {
 	        case 'S': return $this->getBuffer();
 	        case 'I':
-	            if (ob_get_length()) ob_end_clean(); // Limpa e fecha qualquer buffer do Laravel
+	            // Limpa qualquer saída anterior (como espaços ou erros ocultos)
+	            while (ob_get_level()) { ob_end_clean(); }
 	            header('Content-Type: application/pdf');
+	            header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
 	            header('Content-Disposition: inline; filename="'.$name.'"');
 	            header('Content-Length: '.$this->bufferlen);
 	            echo $this->getBuffer();
 	            flush();
-	            exit; // Mata o processo aqui para evitar qualquer injeção de lixo
+	            exit;
 	        case 'F':
 	            file_put_contents($name, $this->getBuffer());
 	            break;
@@ -13405,8 +13406,8 @@ class TCPDF {
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
 	    
-	    // MARCADOR FIXO (47 caracteres exatos)
-	    // Esse espaço nunca muda de tamanho, o que protege a tabela XREF
+	    // MARCADOR DE TAMANHO FIXO (47 caracteres)
+	    // Este placeholder garante que o deslocamento dos objetos seja imutável
 	    $br_placeholder = '/ByteRange [0 0000000000 0000000000 0000000000]';
 	    $out .= ' '.$br_placeholder;
 	    
