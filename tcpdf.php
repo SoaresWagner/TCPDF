@@ -7705,15 +7705,16 @@ class TCPDF {
 	 * @see Close()
 	 */
 	public function Output($name='doc.pdf', $dest='I') {
-	    if ($this->state < 3) { $this->Close(); }
+	    if ($this->state < 3) {
+	        $this->Close();
+	    }
 	    $dest = strtoupper($dest);
 	
 	    if ($this->sign) {
 	        $pdfdoc = $this->getBuffer();
 	        $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 	
-	        // --- MUNDO 1: VIDAAS (EXTERNAL) ---
-	        // Isolamento total para não estragar o processo do Vidaas
+	        // --- MUNDO 1: VIDAAS (ASSINATURA EXTERNA) ---
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $pdfdoc = substr($pdfdoc, 0, -1);
 	            $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
@@ -7723,32 +7724,23 @@ class TCPDF {
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
 	        } 
-	        // --- MUNDO 2: PFX (CORREÇÃO DE HASH BINÁRIO) ---
+	        // --- MUNDO 2: PFX (LOGICA BINARIA PRECISA) ---
 	        else {
-	            // Localizamos o buraco (<...>) criado pela _putsignature
 	            $pos_byterange = strpos($pdfdoc, TCPDF_STATIC::$byterange_string);
 	            $pos_contents = strpos($pdfdoc, '/Contents', $pos_byterange);
 	            $start_hole = strpos($pdfdoc, '<', $pos_contents); 
 	            $end_hole = strpos($pdfdoc, '>', $start_hole) + 1;
 	            $actual_hole_size = ($end_hole - $start_hole) - 2;
 	
-	            // DIVISÃO CIRÚRGICA: part1 (tudo antes do <) e part2 (tudo depois do >)
 	            $part1 = substr($pdfdoc, 0, $start_hole);
 	            $part2 = substr($pdfdoc, $end_hole);
 	
-	            // Cálculo dos limites do ByteRange baseado no comprimento real das strings
-	            $br = array();
-	            $br[0] = 0;
-	            $br[1] = strlen($part1); // Posição exata do início da assinatura
-	            $br[2] = $br[1] + $actual_hole_size + 2; // Posição exata após o fim da assinatura (incluindo <>)
-	            $br[3] = strlen($part2); // Restante do ficheiro
+	            $br = array(0, strlen($part1), strlen($part1) + $actual_hole_size + 2, strlen($part2));
 	
-	            // Atualizamos o ByteRange na Part1. str_pad garante que o tamanho da string não muda.
 	            $byterange_val = sprintf('/ByteRange [%u %u %u %u]', $br[0], $br[1], $br[2], $br[3]);
 	            $byterange_val = str_pad($byterange_val, $byterange_string_len, ' ', STR_PAD_RIGHT);
 	            $part1 = str_replace(TCPDF_STATIC::$byterange_string, $byterange_val, $part1);
 	
-	            // Documento que será assinado (o que está fora do buraco)
 	            $pdfdoc_to_sign = $part1 . $part2;
 	
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
@@ -7768,22 +7760,21 @@ class TCPDF {
 	            $signature = $this->applyTSA($signature);
 	            $signature = current(unpack('H*', $signature));
 	            
-	            // PADDING MILIMÉTRICO: A assinatura deve preencher exatamente o buraco hexadecimal
 	            if (strlen($signature) > $actual_hole_size) {
 	                $signature = substr($signature, 0, $actual_hole_size);
 	            } else {
 	                $signature = str_pad($signature, $actual_hole_size, '0', STR_PAD_RIGHT);
 	            }
 	
-	            // RECONSTRUÇÃO FINAL: Sem usar str_replace no buffer completo
 	            $this->buffer = $part1 . '<' . $signature . '>' . $part2;
 	            $this->bufferlen = strlen($this->buffer);
 	        }
 	    }
 	
-	    // Saída padrão do TCPDF
+	    // Switch de saída - Agora corretamente dentro da função
 	    switch($dest) {
-	        case 'S': return $this->getBuffer();
+	        case 'S':
+	            return $this->getBuffer();
 	        case 'I':
 	            if (ob_get_contents()) { $this->Error('Some data has already been output'); }
 	            header('Content-Type: application/pdf');
@@ -7791,21 +7782,9 @@ class TCPDF {
 	            header('Content-Disposition: inline; filename="'.$name.'"');
 	            TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
 	            break;
-	        case 'F':
-	            $f = fopen($name, 'wb');
-	            fwrite($f, $this->getBuffer());
-	            fclose($f);
-	            break;
-	    }
-	    return '';
-	}
-	
-	    switch($dest) {
-	        case 'S': return $this->getBuffer();
-	        case 'I':
-	            if (ob_get_contents()) { $this->Error('Some data has already been output'); }
+	        case 'D':
 	            header('Content-Type: application/pdf');
-	            header('Content-Disposition: inline; filename="'.$name.'"');
+	            header('Content-Disposition: attachment; filename="'.$name.'"');
 	            TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
 	            break;
 	        case 'F':
@@ -13432,11 +13411,7 @@ class TCPDF {
 	
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
-	    
-	    // Placeholder fixo para o ByteRange (será substituído por valores reais)
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
-	    
-	    // Reserva o espaço exato de zeros (Hole)
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
 	
 	    if (isset($this->signature_data['info']['Name'])) {
