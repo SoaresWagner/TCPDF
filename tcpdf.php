@@ -7714,47 +7714,47 @@ class TCPDF {
 	    $dest = strtoupper($dest);
 	
 	    if ($this->sign) {
+	        // Obtenção do buffer original
 	        $pdfdoc = $this->getBuffer();
-	        $pdfdoc = substr($pdfdoc, 0, -1); // remove última quebra de linha
+	        $pdfdoc = substr($pdfdoc, 0, -1); // Remove newline final conforme fluxo original
 	        $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 	
 	        // --- BLOCO 1: VIDAAS (EXTERNAL) ---
-	        // Lógica de substituição de marcadores para assinatura remota
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
 	            $original_placeholder = TCPDF_STATIC::$byterange_string;
-	            $tamanho_original = strlen($original_placeholder);
-	            
-	            $new_byterange = str_pad($marker_string, $tamanho_original, ' ', STR_PAD_RIGHT);
+	            $new_byterange = str_pad($marker_string, $byterange_string_len, ' ', STR_PAD_RIGHT);
 	            $pdfdoc = str_replace($original_placeholder, $new_byterange, $pdfdoc);
-	            
 	            $this->buffer = $pdfdoc;
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
 	        } 
-	        // --- BLOCO 2: PFX (DINÂMICO E BLINDADO) ---
-	        // Usa busca dinâmica pelo caractere '<' para evitar corrupção de XREF
+	        // --- BLOCO 2: PFX (LOCAL) ---
 	        else {
 	            $byte_range = array();
 	            $byte_range[0] = 0;
 	
-	            // Busca o início real da assinatura (<) em vez de usar o +10 fixo
+	            // BUSCA DINÂMICA: Localiza o início real da assinatura (<) 
+	            // Ignora se o servidor pulou 9, 10 ou 11 bytes. Achamos o marcador binário.
 	            $pos_byterange = strpos($pdfdoc, TCPDF_STATIC::$byterange_string);
 	            $pos_contents = strpos($pdfdoc, '/Contents', $pos_byterange);
 	            $byte_range[1] = strpos($pdfdoc, '<', $pos_contents); 
 	
+	            // Cálculo dos limites do ByteRange
 	            $byte_range[2] = $byte_range[1] + $this->signature_max_length + 2;
 	            $byte_range[3] = strlen($pdfdoc) - $byte_range[2];
 	            
-	            $pdfdoc_base = substr($pdfdoc, 0, $byte_range[1]).substr($pdfdoc, $byte_range[2]);
+	            // Remove o buraco para o OpenSSL calcular o hash do conteúdo ao redor
+	            $pdfdoc_base = substr($pdfdoc, 0, $byte_range[1]) . substr($pdfdoc, $byte_range[2]);
 	            
+	            // Injeta os valores calculados no cabeçalho do ByteRange
 	            $byterange = sprintf('/ByteRange[0 %u %u %u]', $byte_range[1], $byte_range[2], $byte_range[3]);
 	            $byterange .= str_repeat(' ', ($byterange_string_len - strlen($byterange)));
 	            $pdfdoc_base = str_replace(TCPDF_STATIC::$byterange_string, $byterange, $pdfdoc_base);
 	            
+	            // Geração da assinatura PKCS#7
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
 	            $f = TCPDF_STATIC::fopenLocal($tempdoc, 'wb');
-	            if (!$f) { $this->Error('Unable to create temporary file: '.$tempdoc); }
 	            fwrite($f, $pdfdoc_base, strlen($pdfdoc_base));
 	            fclose($f);
 	
@@ -7765,15 +7765,22 @@ class TCPDF {
 	                openssl_pkcs7_sign($tempdoc, $tempsign, $this->signature_data['signcert'], array($this->signature_data['privkey'], $this->signature_data['password']), array(), PKCS7_BINARY | PKCS7_DETACHED, $this->signature_data['extracerts']);
 	            }
 	            
+	            // Extração da assinatura binária
 	            $signature = file_get_contents($tempsign);
 	            $signature = substr($signature, strlen($pdfdoc_base));
 	            $signature = substr($signature, (strpos($signature, "%%EOF\n\n------") + 13));
 	            $tmparr = explode("\n\n", $signature);
 	            $signature = base64_decode(trim($tmparr[1]));
-	            $signature = current(unpack('H*', $this->applyTSA($signature)));
-	            $signature = str_pad($signature, $this->signature_max_length, '0');
 	            
-	            $this->buffer = substr($pdfdoc_base, 0, $byte_range[1]).'<'.$signature.'>'.substr($pdfdoc_base, $byte_range[1]);
+	            // Aplica Timestamp e converte para HEX
+	            $signature = $this->applyTSA($signature);
+	            $signature = current(unpack('H*', $signature));
+	            
+	            // Padding exato para preencher o espaço reservado
+	            $signature = str_pad($signature, $this->signature_max_length, '0', STR_PAD_RIGHT);
+	            
+	            // Injeção final no buffer principal
+	            $this->buffer = substr($pdfdoc_base, 0, $byte_range[1]) . '<' . $signature . '>' . substr($pdfdoc_base, $byte_range[1]);
 	            $this->bufferlen = strlen($this->buffer);
 	        }
 	    }
