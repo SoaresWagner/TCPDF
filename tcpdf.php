@@ -7710,10 +7710,10 @@ class TCPDF {
 	
 	    if ($this->sign) {
 	        $pdfdoc = $this->getBuffer();
-	        $pdfdoc = substr($pdfdoc, 0, -1); // Remove o newline final padrão do TCPDF
+	        $pdfdoc = substr($pdfdoc, 0, -1); // Remove o newline final
 	        $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 	
-	        // --- MUNDO VIDAAS ---
+	        // --- MUNDO 1: VIDAAS (ASSINATURA EXTERNA) ---
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
 	            $new_byterange = str_pad($marker_string, $byterange_string_len, ' ', STR_PAD_RIGHT);
@@ -7722,33 +7722,31 @@ class TCPDF {
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
 	        } 
-	        // --- MUNDO PFX (CORREÇÃO DE HASH) ---
+	        // --- MUNDO 2: PFX (CORREÇÃO DE HASH) ---
 	        else {
+	            // Localizamos o buraco dinamicamente
 	            $pos_byterange = strpos($pdfdoc, TCPDF_STATIC::$byterange_string);
 	            $pos_contents = strpos($pdfdoc, '/Contents', $pos_byterange);
-	            
-	            // Posição exata do início do buraco (<) e do fim (>)
-	            $start_hole = strpos($pdfdoc, '<', $pos_contents);
-	            $end_hole = $start_hole + $this->signature_max_length + 2; // +2 pelos delimitadores <>
+	            $start_hole = strpos($pdfdoc, '<', $pos_contents); 
+	            $end_hole = $start_hole + $this->signature_max_length + 2;
 	
-	            // Pedaço 1: Do início até o '<'
+	            // DIVISÃO BINÁRIA: Isolamos as partes para garantir que nada mude após a assinatura
 	            $part1 = substr($pdfdoc, 0, $start_hole);
-	            // Pedaço 2: Do '>' até o fim do arquivo
 	            $part2 = substr($pdfdoc, $end_hole);
 	
-	            // Agora calculamos os números REAIS para o ByteRange baseado nessas duas partes
-	            $byte_range = array();
-	            $byte_range[0] = 0;
-	            $byte_range[1] = strlen($part1);
-	            $byte_range[2] = $byte_range[1] + $this->signature_max_length + 2;
-	            $byte_range[3] = strlen($part2);
+	            // Cálculo dos limites do ByteRange
+	            $br = array();
+	            $br[0] = 0;
+	            $br[1] = strlen($part1); // Byte onde começa a assinatura
+	            $br[2] = $br[1] + $this->signature_max_length + 2; // Byte onde termina a assinatura
+	            $br[3] = strlen($part2); // Tamanho da parte final
 	
-	            // Geramos a string do ByteRange e substituímos na Part1
-	            $byterange_val = sprintf('/ByteRange [0 %u %u %u]', $byte_range[1], $byte_range[2], $byte_range[3]);
+	            // Injetamos o ByteRange real na Part1 mantendo o comprimento fixo
+	            $byterange_val = sprintf('/ByteRange [0 %u %u %u]', $br[1], $br[2], $br[3]);
 	            $byterange_val = str_pad($byterange_val, $byterange_string_len, ' ', STR_PAD_RIGHT);
 	            $part1 = str_replace(TCPDF_STATIC::$byterange_string, $byterange_val, $part1);
 	
-	            // Documento para ser assinado (Sem o buraco)
+	            // Documento que será assinado (Part1 + Part2)
 	            $pdfdoc_to_sign = $part1 . $part2;
 	
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
@@ -7768,24 +7766,26 @@ class TCPDF {
 	            $signature = $this->applyTSA($signature);
 	            $signature = current(unpack('H*', $signature));
 	            
-	            // GARANTIA: Se a assinatura for maior que o buraco, o PDF quebra. 
-	            // Se for menor, preenchemos com zeros à DIREITA.
+	            // PADDING: Preenche com zeros à direita até o tamanho exato do buraco
 	            $signature = str_pad($signature, $this->signature_max_length, '0', STR_PAD_RIGHT);
+	            
+	            // Corta se a assinatura for maior que o buraco (evita corromper o PDF)
 	            if (strlen($signature) > $this->signature_max_length) {
 	                $signature = substr($signature, 0, $this->signature_max_length);
 	            }
 	
-	            // Montagem final: NADA PODE MUDAR AQUI
+	            // RECONSTRUÇÃO FINAL: Part1 + < + Sig + > + Part2
 	            $this->buffer = $part1 . '<' . $signature . '>' . $part2;
 	            $this->bufferlen = strlen($this->buffer);
 	        }
 	    }
 	
-	    // Switch de saída (simplificado para focar na lógica)
 	    switch($dest) {
 	        case 'S': return $this->getBuffer();
 	        case 'I':
+	            if (ob_get_contents()) { $this->Error('Some data has already been output'); }
 	            header('Content-Type: application/pdf');
+	            header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
 	            header('Content-Disposition: inline; filename="'.$name.'"');
 	            TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
 	            break;
@@ -13407,17 +13407,14 @@ class TCPDF {
 	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['privkey']) OR $this->signature_data['privkey'] !== 'EXTERNAL'))) {
 	        return;
 	    }
-	
 	    $sigobjid = ($this->sig_obj_id + 1);
 	    $this->sig_fields[] = $sigobjid; 
-	
+	    
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
-	    
-	    // O segredo está aqui: o str_repeat deve ser IDENTICO ao padding final no Output
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
-	
+	    
 	    if (isset($this->signature_data['info']['Name'])) {
 	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
 	    }
@@ -13427,11 +13424,13 @@ class TCPDF {
 	    if (isset($this->signature_data['info']['Reason'])) {
 	        $out .= ' /Reason '.$this->_textstring($this->signature_data['info']['Reason'], $sigobjid);
 	    }
+	    if (isset($this->signature_data['info']['ContactInfo'])) {
+	        $out .= ' /ContactInfo '.$this->_textstring($this->signature_data['info']['ContactInfo'], $sigobjid);
+	    }
 	    
 	    $out .= ' /M '.$this->_datestring($sigobjid, $this->doc_modification_timestamp);
 	    $out .= ' >>';
 	    $out .= "\n".'endobj';
-	    
 	    $this->_out($out);
 	}
 	/**
