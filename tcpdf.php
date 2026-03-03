@@ -13420,34 +13420,43 @@ class TCPDF {
 	 * @since 4.6.008 (2009-05-07)
 	 */
 	protected function _putsignature() {
-	    // Validação para permitir o modo EXTERNAL
-	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['sign_type']) OR $this->signature_data['sign_type'] !== 'EXTERNAL'))) {
+	    // Ajuste na validação para bater com a lógica do Output (privkey === 'EXTERNAL')
+	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['privkey']) OR $this->signature_data['privkey'] !== 'EXTERNAL'))) {
 	        return;
 	    }
 	
 	    $sigobjid = ($this->sig_obj_id + 1);
 	    
-	    // REGISTRO OBRIGATÓRIO: Sem isso o Adobe não reconhece o campo de assinatura
+	    // Registro do campo de assinatura no catálogo global
 	    $this->sig_fields[] = $sigobjid; 
 	
 	    $out = $this->_getobj($sigobjid)."\n";
-	    $out .= '<< /Type /Sig';
-	    $out .= ' /Filter /Adobe.PPKLite';
-	    $out .= ' /SubFilter /adbe.pkcs7.detached';
+	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
 	    
-	    // Tags que o Controller usará para os cálculos de ByteRange
+	    // O marcador do ByteRange que será localizado e substituído no Output
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
 	    
-	    // Placeholder de 20.000 zeros que será preenchido pelo Vidaas
+	    // O buraco hexadecimal: precisa ter exatamente signature_max_length caracteres
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
 	
+	    // Metadados da Assinatura (Ajudam o Adobe a validar a intenção)
 	    if (isset($this->signature_data['info']['Name'])) {
 	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
+	    }
+	    if (isset($this->signature_data['info']['Location'])) {
+	        $out .= ' /Location '.$this->_textstring($this->signature_data['info']['Location'], $sigobjid);
+	    }
+	    if (isset($this->signature_data['info']['Reason'])) {
+	        $out .= ' /Reason '.$this->_textstring($this->signature_data['info']['Reason'], $sigobjid);
+	    }
+	    if (isset($this->signature_data['info']['ContactInfo'])) {
+	        $out .= ' /ContactInfo '.$this->_textstring($this->signature_data['info']['ContactInfo'], $sigobjid);
 	    }
 	    
 	    $out .= ' /M '.$this->_datestring($sigobjid, $this->doc_modification_timestamp);
 	    $out .= ' >>';
 	    $out .= "\n".'endobj';
+	    
 	    $this->_out($out);
 	}
 	/**
