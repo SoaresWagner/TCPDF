@@ -7707,21 +7707,22 @@ class TCPDF {
 	public function Output($name='doc.pdf', $dest='I') {
 	    if ($this->state < 3) { $this->Close(); }
 	    $dest = strtoupper($dest);
+	
 	    if ($this->sign) {
 	        $pdfdoc = $this->getBuffer();
-	        $br_marker = '/ByteRange [0 0000000000 0000000000 0000000000]';
-	        $br_marker_len = 47; 
+	        $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 	
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $pdfdoc = substr($pdfdoc, 0, -1);
-	            $v_marker = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
-	            $new_br = str_pad($v_marker, $br_marker_len, ' ', STR_PAD_RIGHT);
-	            $pdfdoc = str_replace($br_marker, $new_br, $pdfdoc);
+	            $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
+	            $new_byterange = str_pad($marker_string, $byterange_string_len, ' ', STR_PAD_RIGHT);
+	            $pdfdoc = str_replace(TCPDF_STATIC::$byterange_string, $new_byterange, $pdfdoc);
 	            $this->buffer = $pdfdoc;
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
 	        } else {
-	            $pos_contents = strpos($pdfdoc, '/Contents');
+	            $pos_byterange = strpos($pdfdoc, TCPDF_STATIC::$byterange_string);
+	            $pos_contents = strpos($pdfdoc, '/Contents', $pos_byterange);
 	            $start_hole = strpos($pdfdoc, '<', $pos_contents); 
 	            $end_hole = strpos($pdfdoc, '>', $start_hole) + 1;
 	            $hole_len = ($end_hole - $start_hole) - 2;
@@ -7731,17 +7732,9 @@ class TCPDF {
 	
 	            $b1 = strlen($part1);
 	            $b2 = $b1 + $hole_len + 2;
-	            $b3 = strlen($part2);
-	
-	            // Injeção com Padding de espaços: Mantém o tamanho do ficheiro IDÊNTICO
-	            $br_real = sprintf('/ByteRange [0 %u %u %u]', $b1, $b2, $b3);
-	            $br_real = str_pad($br_real, $br_marker_len, ' ', STR_PAD_RIGHT);
-	            
-	            // Substituição cirúrgica no part1 para não quebrar os offsets do XREF
-	            $pos_br = strpos($part1, $br_marker);
-	            if ($pos_br !== false) {
-	                $part1 = substr_replace($part1, $br_real, $pos_br, $br_marker_len);
-	            }
+	            $br_string = sprintf('/ByteRange [0 %u %u %u]', $b1, $b2, strlen($part2));
+	            $br_string = str_pad($br_string, $byterange_string_len, ' ', STR_PAD_RIGHT);
+	            $part1 = str_replace(TCPDF_STATIC::$byterange_string, $br_string, $part1);
 	
 	            $pdfdoc_to_sign = $part1 . $part2;
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
@@ -7756,7 +7749,7 @@ class TCPDF {
 	            $signature = base64_decode(trim($tmparr[1]));
 	            
 	            $signature = $this->applyTSA($signature);
-	            $signature = strtoupper(bin2hex($signature));
+	            $signature = strtoupper(current(unpack('H*', $signature)));
 	            $signature = str_pad($signature, $hole_len, '0', STR_PAD_RIGHT);
 	            
 	            if (strlen($signature) > $hole_len) {
@@ -7771,15 +7764,11 @@ class TCPDF {
 	    switch($dest) {
 	        case 'S': return $this->getBuffer();
 	        case 'I':
-	            // Mata qualquer buffer de saída pendente do servidor para evitar corrupção
-	            while (ob_get_level()) { ob_end_clean(); }
+	            if (ob_get_length()) ob_clean(); 
 	            header('Content-Type: application/pdf');
-	            header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
 	            header('Content-Disposition: inline; filename="'.$name.'"');
-	            header('Content-Length: '.$this->bufferlen);
-	            echo $this->getBuffer();
-	            flush();
-	            exit; // Interrompe a execução para garantir pureza binária
+	            TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
+	            break;
 	        case 'F':
 	            file_put_contents($name, $this->getBuffer());
 	            break;
@@ -13396,22 +13385,23 @@ class TCPDF {
 	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['privkey']) OR $this->signature_data['privkey'] !== 'EXTERNAL'))) {
 	        return;
 	    }
+	
 	    $sigobjid = ($this->sig_obj_id + 1);
 	    $this->sig_fields[] = $sigobjid; 
+	
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
-	    
-	    // MARCADOR FIXO (47 caracteres): Garante que a tabela XREF não se desloque
-	    $br_placeholder = '/ByteRange [0 0000000000 0000000000 0000000000]';
-	    $out .= ' '.$br_placeholder;
-	    
+	    $out .= ' '.TCPDF_STATIC::$byterange_string;
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
+	
 	    if (isset($this->signature_data['info']['Name'])) {
 	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
 	    }
+	    
 	    $out .= ' /M '.$this->_datestring($sigobjid, $this->doc_modification_timestamp);
 	    $out .= ' >>';
 	    $out .= "\n".'endobj';
+	    
 	    $this->_out($out);
 	}
 	/**
