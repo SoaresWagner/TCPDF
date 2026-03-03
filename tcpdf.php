@@ -7721,7 +7721,6 @@ class TCPDF {
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
 	        } else {
-	            // Localização do buraco da assinatura
 	            $pos_contents = strpos($pdfdoc, '/Contents');
 	            $start_hole = strpos($pdfdoc, '<', $pos_contents); 
 	            $end_hole = strpos($pdfdoc, '>', $start_hole) + 1;
@@ -7730,18 +7729,19 @@ class TCPDF {
 	            $part1 = substr($pdfdoc, 0, $start_hole);
 	            $part2 = substr($pdfdoc, $end_hole);
 	
-	            // Cálculo dos endereços reais
 	            $b1 = strlen($part1);
 	            $b2 = $b1 + $hole_len + 2;
 	            $b3 = strlen($part2);
 	
-	            // Gera o ByteRange real e preenche com espaços até completar 47 bytes
+	            // Injeção com Padding de espaços: Mantém o tamanho do ficheiro IDÊNTICO
 	            $br_real = sprintf('/ByteRange [0 %u %u %u]', $b1, $b2, $b3);
 	            $br_real = str_pad($br_real, $br_marker_len, ' ', STR_PAD_RIGHT);
 	            
-	            // Substituição cirúrgica por posição para proteger a tabela XREF
-	            $pos_br_in_p1 = strpos($part1, $br_marker);
-	            $part1 = substr_replace($part1, $br_real, $pos_br_in_p1, $br_marker_len);
+	            // Substituição cirúrgica no part1 para não quebrar os offsets do XREF
+	            $pos_br = strpos($part1, $br_marker);
+	            if ($pos_br !== false) {
+	                $part1 = substr_replace($part1, $br_real, $pos_br, $br_marker_len);
+	            }
 	
 	            $pdfdoc_to_sign = $part1 . $part2;
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
@@ -7763,7 +7763,6 @@ class TCPDF {
 	                $signature = substr($signature, 0, $hole_len);
 	            }
 	
-	            // Reconstrução final do ficheiro
 	            $this->buffer = $part1 . '<' . $signature . '>' . $part2;
 	            $this->bufferlen = strlen($this->buffer);
 	        }
@@ -7772,7 +7771,7 @@ class TCPDF {
 	    switch($dest) {
 	        case 'S': return $this->getBuffer();
 	        case 'I':
-	            // Limpa qualquer lixo de saída do PHP para não corromper o PDF
+	            // Mata qualquer buffer de saída pendente do servidor para evitar corrupção
 	            while (ob_get_level()) { ob_end_clean(); }
 	            header('Content-Type: application/pdf');
 	            header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
@@ -7780,7 +7779,7 @@ class TCPDF {
 	            header('Content-Length: '.$this->bufferlen);
 	            echo $this->getBuffer();
 	            flush();
-	            exit; 
+	            exit; // Interrompe a execução para garantir pureza binária
 	        case 'F':
 	            file_put_contents($name, $this->getBuffer());
 	            break;
@@ -13402,7 +13401,7 @@ class TCPDF {
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
 	    
-	    // MARCADOR FIXO (47 caracteres): Essencial para manter a tabela XREF intacta
+	    // MARCADOR FIXO (47 caracteres): Garante que a tabela XREF não se desloque
 	    $br_placeholder = '/ByteRange [0 0000000000 0000000000 0000000000]';
 	    $out .= ' '.$br_placeholder;
 	    
