@@ -7712,7 +7712,7 @@ class TCPDF {
 	        $pdfdoc = $this->getBuffer();
 	        $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 	
-	        // --- BLOCO VIDAAS (EXTERNAL) ---
+	        // --- MUNDO EXTERNAL (VIDAAS) ---
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $pdfdoc = substr($pdfdoc, 0, -1);
 	            $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
@@ -7722,29 +7722,24 @@ class TCPDF {
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
 	        } 
-	        // --- BLOCO PFX (ASSINATURA BINÁRIA) ---
+	        // --- MUNDO PFX (ASSINATURA BINÁRIA) ---
 	        else {
-	            // Localização precisa do buraco
 	            $pos_byterange = strpos($pdfdoc, TCPDF_STATIC::$byterange_string);
 	            $pos_contents = strpos($pdfdoc, '/Contents', $pos_byterange);
 	            $start_hole = strpos($pdfdoc, '<', $pos_contents); 
 	            $end_hole = strpos($pdfdoc, '>', $start_hole) + 1;
 	            $hole_len = ($end_hole - $start_hole) - 2;
 	
-	            // Divide o arquivo sem remover nenhum byte do final (\n)
 	            $part1 = substr($pdfdoc, 0, $start_hole);
 	            $part2 = substr($pdfdoc, $end_hole);
 	
-	            // ByteRange calculado sobre os bytes brutos
+	            // ByteRange MILIMÉTRICO
 	            $b1 = strlen($part1);
 	            $b2 = $b1 + $hole_len + 2;
-	            $b3 = strlen($part2);
-	
-	            $br_string = sprintf('/ByteRange [0 %u %u %u]', $b1, $b2, $b3);
+	            $br_string = sprintf('/ByteRange [0 %u %u %u]', $b1, $b2, strlen($part2));
 	            $br_string = str_pad($br_string, $byterange_string_len, ' ', STR_PAD_RIGHT);
+	            
 	            $part1 = str_replace(TCPDF_STATIC::$byterange_string, $br_string, $part1);
-	
-	            // O que assinamos deve ser EXATAMENTE o que vai para o arquivo
 	            $pdfdoc_to_sign = $part1 . $part2;
 	
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
@@ -7760,17 +7755,15 @@ class TCPDF {
 	            $tmparr = explode("\n\n", $signature);
 	            $signature = base64_decode(trim($tmparr[1]));
 	            
-	            // Timestamp e Conversão Hex
 	            $signature = $this->applyTSA($signature);
 	            $signature = strtoupper(current(unpack('H*', $signature)));
-	            
-	            // Ajuste milimétrico do padding
 	            $signature = str_pad($signature, $hole_len, '0', STR_PAD_RIGHT);
+	            
 	            if (strlen($signature) > $hole_len) {
 	                $signature = substr($signature, 0, $hole_len);
 	            }
 	
-	            // Montagem final do buffer
+	            // RECONSTRUÇÃO FINAL SEM ALTERAR NADA
 	            $this->buffer = $part1 . '<' . $signature . '>' . $part2;
 	            $this->bufferlen = strlen($this->buffer);
 	        }
@@ -7779,9 +7772,10 @@ class TCPDF {
 	    switch($dest) {
 	        case 'S': return $this->getBuffer();
 	        case 'I':
-	            // IMPORTANTE: Limpar qualquer lixo no buffer de saída do Laravel
-	            if (ob_get_length()) ob_clean();
+	            // LIMPEZA CRUCIAL PARA O ADOBE: Remove qualquer espaço/lixo do Laravel
+	            if (ob_get_length()) ob_clean(); 
 	            header('Content-Type: application/pdf');
+	            header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
 	            header('Content-Disposition: inline; filename="'.$name.'"');
 	            TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
 	            break;
@@ -7793,7 +7787,6 @@ class TCPDF {
 	    }
 	    return '';
 	}
-
 	protected static $cleaned_ids = array();
 	/**
 	 * Unset all class variables except the following critical variables.
@@ -13400,27 +13393,20 @@ class TCPDF {
 	 * @since 4.6.008 (2009-05-07)
 	 */
 	protected function _putsignature() {
-	    // Validação estrita: se não for para assinar ou se for modo EXTERNAL (Vidaas), sai.
 	    if (!$this->sign OR (!isset($this->signature_data['cert_type']) && (!isset($this->signature_data['privkey']) OR $this->signature_data['privkey'] !== 'EXTERNAL'))) {
 	        return;
 	    }
 	
 	    $sigobjid = ($this->sig_obj_id + 1);
-	    
-	    // REGISTRO NO CATÁLOGO: Essencial para o Adobe "ver" a assinatura
 	    $this->sig_fields[] = $sigobjid; 
 	
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
-	    
-	    // Placeholder que o Output usará para calcular os bytes reais
 	    $out .= ' '.TCPDF_STATIC::$byterange_string;
 	    
-	    // O "buraco" onde a assinatura hexadecimal será injetada
-	    // IMPORTANTE: Deve ter exatamente signature_max_length de zeros
+	    // O buraco de zeros deve ter exatamente o tamanho reservado
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
 	
-	    // Metadados básicos que não interferem no hash
 	    if (isset($this->signature_data['info']['Name'])) {
 	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
 	    }
