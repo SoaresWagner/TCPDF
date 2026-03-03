@@ -7717,35 +7717,35 @@ class TCPDF {
 	        $pdfdoc = substr($pdfdoc, 0, -1); // remove last newline
 	        $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 	
-	        // --- HACK ADMED INÍCIO: SUPORTE A ASSINATURA REMOTA (VIDAAS) ---
-	        // ISOLAMENTO TOTAL: Se for Vidaas, processa e retorna IMEDIATAMENTE.
+	        // --- BLOCO 1: VIDAAS (HACK ADMED) ---
+	        // Se for assinatura externa, usamos apenas a troca de strings e paramos aqui.
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
 	            $original_placeholder = TCPDF_STATIC::$byterange_string;
 	            $tamanho_original = strlen($original_placeholder);
 	            
-	            // Mantém o tamanho do arquivo original para não quebrar o XREF
 	            $new_byterange = str_pad($marker_string, $tamanho_original, ' ', STR_PAD_RIGHT);
 	            $pdfdoc = str_replace($original_placeholder, $new_byterange, $pdfdoc);
 	            
 	            $this->buffer = $pdfdoc;
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
-	        } else {
-	            // --- FLUXO ORIGINAL DO TCPDF (PARA SEU CERTIFICADO PFX) ---
-	            // REVERTIDO PARA O +10 QUE VOCÊ INFORMOU QUE FUNCIONAVA PERFEITAMENTE
+	        } 
+	        // --- BLOCO 2: PFX ORIGINAL (O QUE FUNCIONAVA PERFEITAMENTE) ---
+	        else {
 	            $byte_range = array();
 	            $byte_range[0] = 0;
+	            // Cálculo exato da versão original do TCPDF que você usa
 	            $byte_range[1] = strpos($pdfdoc, TCPDF_STATIC::$byterange_string) + $byterange_string_len + 10;
 	            $byte_range[2] = $byte_range[1] + $this->signature_max_length + 2;
 	            $byte_range[3] = strlen($pdfdoc) - $byte_range[2];
 	            $pdfdoc = substr($pdfdoc, 0, $byte_range[1]).substr($pdfdoc, $byte_range[2]);
-	            
+	
 	            // replace the ByteRange
 	            $byterange = sprintf('/ByteRange[0 %u %u %u]', $byte_range[1], $byte_range[2], $byte_range[3]);
 	            $byterange .= str_repeat(' ', ($byterange_string_len - strlen($byterange)));
 	            $pdfdoc = str_replace(TCPDF_STATIC::$byterange_string, $byterange, $pdfdoc);
-	            
+	
 	            // write the document to a temporary folder
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
 	            $f = TCPDF_STATIC::fopenLocal($tempdoc, 'wb');
@@ -7779,6 +7779,7 @@ class TCPDF {
 	        }
 	    }
 	
+	    // Switch case original para as saídas
 	    switch($dest) {
 	        case 'I': {
 	            if (ob_get_contents()) { $this->Error('Some data has already been output'); }
