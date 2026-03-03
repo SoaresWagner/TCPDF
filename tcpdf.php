@@ -7707,11 +7707,13 @@ class TCPDF {
 	public function Output($name='doc.pdf', $dest='I') {
 	    if ($this->state < 3) { $this->Close(); }
 	    $dest = strtoupper($dest);
+	
 	    if ($this->sign) {
 	        $pdfdoc = $this->getBuffer();
 	        $br_marker = '/ByteRange [0 0000000000 0000000000 0000000000]';
-	        $br_marker_len = strlen($br_marker);
+	        $br_marker_len = 47; // Tamanho fixo do nosso marcador acima
 	
+	        // --- MUNDO VIDAAS (EXTERNAL) ---
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $pdfdoc = substr($pdfdoc, 0, -1);
 	            $v_marker = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
@@ -7720,24 +7722,31 @@ class TCPDF {
 	            $this->buffer = $pdfdoc;
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
-	        } else {
+	        } 
+	        // --- MUNDO PFX (ASSINATURA LOCAL) ---
+	        else {
 	            $pos_contents = strpos($pdfdoc, '/Contents');
 	            $start_hole = strpos($pdfdoc, '<', $pos_contents); 
 	            $end_hole = strpos($pdfdoc, '>', $start_hole) + 1;
 	            $hole_len = ($end_hole - $start_hole) - 2;
 	
+	            // Divide em partes binárias
 	            $part1 = substr($pdfdoc, 0, $start_hole);
 	            $part2 = substr($pdfdoc, $end_hole);
 	
-	            $b1 = strlen($part1);
-	            $b2 = $b1 + $hole_len + 2;
-	            $b3 = strlen($part2);
+	            // Cálculo dos offsets reais
+	            $b1 = strlen($part1); // Fim da parte 1
+	            $b2 = $b1 + $hole_len + 2; // Início da parte 2
+	            $b3 = strlen($part2); // Tamanho da parte 2
 	
-	            // Injeção com Espaços: Mantém o tamanho total do arquivo IDÊNTICO
+	            // Cria o ByteRange real e preenche com espaços até chegar em 47 caracteres
 	            $br_real = sprintf('/ByteRange [0 %u %u %u]', $b1, $b2, $b3);
 	            $br_real = str_pad($br_real, $br_marker_len, ' ', STR_PAD_RIGHT);
+	            
+	            // Substitui APENAS na Part1 para não correr risco de mexer no resto
 	            $part1 = str_replace($br_marker, $br_real, $part1);
 	
+	            // Assina a união das partes
 	            $pdfdoc_to_sign = $part1 . $part2;
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
 	            file_put_contents($tempdoc, $pdfdoc_to_sign);
@@ -7758,6 +7767,7 @@ class TCPDF {
 	                $signature = substr($signature, 0, $hole_len);
 	            }
 	
+	            // Remontagem do buffer: Part1 já contém o ByteRange correto com tamanho fixo
 	            $this->buffer = $part1 . '<' . $signature . '>' . $part2;
 	            $this->bufferlen = strlen($this->buffer);
 	        }
@@ -7766,13 +7776,13 @@ class TCPDF {
 	    switch($dest) {
 	        case 'S': return $this->getBuffer();
 	        case 'I':
-	            if (ob_get_length()) ob_clean();
+	            if (ob_get_length()) ob_end_clean(); // Limpa e fecha qualquer buffer do Laravel
 	            header('Content-Type: application/pdf');
 	            header('Content-Disposition: inline; filename="'.$name.'"');
-	            // IMPORTANTE: Use echo para garantir a saída direta do buffer
+	            header('Content-Length: '.$this->bufferlen);
 	            echo $this->getBuffer();
 	            flush();
-	            exit;
+	            exit; // Mata o processo aqui para evitar qualquer injeção de lixo
 	        case 'F':
 	            file_put_contents($name, $this->getBuffer());
 	            break;
@@ -13391,17 +13401,21 @@ class TCPDF {
 	    }
 	    $sigobjid = ($this->sig_obj_id + 1);
 	    $this->sig_fields[] = $sigobjid; 
+	
 	    $out = $this->_getobj($sigobjid)."\n";
 	    $out .= '<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached';
 	    
-	    // MARCADOR DE TAMANHO FIXO (47 bytes): Não altere o número de zeros
+	    // MARCADOR FIXO (47 caracteres exatos)
+	    // Esse espaço nunca muda de tamanho, o que protege a tabela XREF
 	    $br_placeholder = '/ByteRange [0 0000000000 0000000000 0000000000]';
 	    $out .= ' '.$br_placeholder;
 	    
 	    $out .= ' /Contents <'.str_repeat('0', $this->signature_max_length).'>';
+	    
 	    if (isset($this->signature_data['info']['Name'])) {
 	        $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
 	    }
+	    
 	    $out .= ' /M '.$this->_datestring($sigobjid, $this->doc_modification_timestamp);
 	    $out .= ' >>';
 	    $out .= "\n".'endobj';
