@@ -7701,141 +7701,148 @@ class TCPDF {
 	 * @see Close()
 	 */
 	public function Output($name='doc.pdf', $dest='I') {
-		// Finish document if necessary
-		if ($this->state < 3) {
-			$this->Close();
-		}
-		// Normalize parameters
-		if (is_bool($dest)) {
-			$dest = $dest ? 'D' : 'F';
-		}
-		$dest = strtoupper($dest);
-
-		if ($this->sign) {
-			// *** apply digital signature to the document ***
-			$pdfdoc = $this->getBuffer();
-			$pdfdoc = substr($pdfdoc, 0, -1); // remove last newline
-			$byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
-
-			// --- HACK ADMED INÍCIO: SUPORTE A ASSINATURA REMOTA (VIDAAS) ---
-			if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
-			    // 1. Nossa string base (o que queremos injetar)
-			    $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
-			    
-			    // 2. O Segredo: Pegamos o placeholder original que o TCPDF usou para calcular o XREF
-			    $original_placeholder = TCPDF_STATIC::$byterange_string;
-			    $tamanho_original = strlen($original_placeholder);
-			    
-			    // 3. Travamos o tamanho: Se a nossa string for menor, preenchemos com espaços
-			    // Isso garante que o startxref continue apontando para o byte exato.
-			    $new_byterange = str_pad($marker_string, $tamanho_original, ' ', STR_PAD_RIGHT);
-			    
-			    $pdfdoc = str_replace($original_placeholder, $new_byterange, $pdfdoc);
-			    
-			    $this->buffer = $pdfdoc;
-			    $this->bufferlen = strlen($this->buffer);
-			    if ($dest == 'S') { return $this->getBuffer(); }
-			} else {
-				// --- FLUXO ORIGINAL DO TCPDF (PARA SEU CERTIFICADO PFX) ---
-				$byte_range = array();
-				$byte_range[0] = 0;
-				$byte_range[1] = strpos($pdfdoc, TCPDF_STATIC::$byterange_string) + $byterange_string_len + 10;
-				$byte_range[2] = $byte_range[1] + $this->signature_max_length + 2;
-				$byte_range[3] = strlen($pdfdoc) - $byte_range[2];
-				$pdfdoc = substr($pdfdoc, 0, $byte_range[1]).substr($pdfdoc, $byte_range[2]);
-				
-				$byterange = sprintf('/ByteRange[0 %u %u %u]', $byte_range[1], $byte_range[2], $byte_range[3]);
-				$byterange .= str_repeat(' ', ($byterange_string_len - strlen($byterange)));
-				$pdfdoc = str_replace(TCPDF_STATIC::$byterange_string, $byterange, $pdfdoc);
-				
-				$tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
-				$f = TCPDF_STATIC::fopenLocal($tempdoc, 'wb');
-				if (!$f) { $this->Error('Unable to create temporary file: '.$tempdoc); }
-				$pdfdoc_length = strlen($pdfdoc);
-				fwrite($f, $pdfdoc, $pdfdoc_length);
-				fclose($f);
-
-				$tempsign = TCPDF_STATIC::getObjFilename('sig', $this->file_id);
-				if (empty($this->signature_data['extracerts'])) {
-					openssl_pkcs7_sign($tempdoc, $tempsign, $this->signature_data['signcert'], array($this->signature_data['privkey'], $this->signature_data['password']), array(), PKCS7_BINARY | PKCS7_DETACHED);
-				} else {
-					openssl_pkcs7_sign($tempdoc, $tempsign, $this->signature_data['signcert'], array($this->signature_data['privkey'], $this->signature_data['password']), array(), PKCS7_BINARY | PKCS7_DETACHED, $this->signature_data['extracerts']);
-				}
-				
-				$signature = file_get_contents($tempsign);
-				$signature = substr($signature, $pdfdoc_length);
-				$signature = substr($signature, (strpos($signature, "%%EOF\n\n------") + 13));
-				$tmparr = explode("\n\n", $signature);
-				$signature = $tmparr[1];
-				$signature = base64_decode(trim($signature));
-				$signature = $this->applyTSA($signature);
-				$signature = current(unpack('H*', $signature));
-				$signature = str_pad($signature, $this->signature_max_length, '0');
-				
-				$this->buffer = substr($pdfdoc, 0, $byte_range[1]).'<'.$signature.'>'.substr($pdfdoc, $byte_range[1]);
-				$this->bufferlen = strlen($this->buffer);
-			}
-		}
-
-		// O RESTANTE DA FUNÇÃO SEGUE IGUAL (Swith Case de Destino)
-		switch($dest) {
-			case 'I': {
-				if (ob_get_contents()) { $this->Error('Some data has already been output'); }
-				if (php_sapi_name() != 'cli') {
-					header('Content-Type: application/pdf');
-					header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
-					header('Pragma: public');
-					header('Expires: Sat, 26 Jul 1997 05:00:00 GMT');
-					header('Last-Modified: '.gmdate('D, d M Y H:i:s').' GMT');
-					header('Content-Disposition: inline; filename="' . rawurlencode(basename($name)) . '"; filename*=UTF-8\'\'' . rawurlencode(basename($name)));
-					TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
-				} else { echo $this->getBuffer(); }
-				break;
-			}
-			case 'D': {
-				if (ob_get_contents()) { $this->Error('Some data has already been output'); }
-				header('Content-Description: File Transfer');
-				header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
-				header('Pragma: public');
-				header('Expires: Sat, 26 Jul 1997 05:00:00 GMT');
-				header('Last-Modified: '.gmdate('D, d M Y H:i:s').' GMT');
-				header('Content-Type: application/pdf');
-				header('Content-Disposition: attachment; filename="' . rawurlencode(basename($name)) . '"; filename*=UTF-8\'\'' . rawurlencode(basename($name)));
-				header('Content-Transfer-Encoding: binary');
-				TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
-				break;
-			}
-			case 'F':
-			case 'FI':
-			case 'FD': {
-				$f = TCPDF_STATIC::fopenLocal($name, 'wb');
-				if (!$f) { $this->Error('Unable to create output file: '.$name); }
-				fwrite($f, $this->getBuffer(), $this->bufferlen);
-				fclose($f);
-				if ($dest == 'FI') {
-					header('Content-Type: application/pdf');
-					header('Content-Disposition: inline; filename="'.basename($name).'"');
-					TCPDF_STATIC::sendOutputData(file_get_contents($name), filesize($name));
-				} elseif ($dest == 'FD') {
-					header('Content-Type: application/pdf');
-					header('Content-Disposition: attachment; filename="'.basename($name).'"');
-					TCPDF_STATIC::sendOutputData(file_get_contents($name), filesize($name));
-				}
-				break;
-			}
-			case 'E': {
-				$retval = 'Content-Type: application/pdf; name="'.$name.'"'."\r\n";
-				$retval .= 'Content-Transfer-Encoding: base64'."\r\n";
-				$retval .= 'Content-Disposition: attachment; filename="'.$name.'"'."\r\n\r\n";
-				$retval .= chunk_split(base64_encode($this->getBuffer()), 76, "\r\n");
-				return $retval;
-			}
-			case 'S': {
-				return $this->getBuffer();
-			}
-			default: { $this->Error('Incorrect output destination: '.$dest); }
-		}
-		return '';
+	    // Finish document if necessary
+	    if ($this->state < 3) {
+	        $this->Close();
+	    }
+	    // Normalize parameters
+	    if (is_bool($dest)) {
+	        $dest = $dest ? 'D' : 'F';
+	    }
+	    $dest = strtoupper($dest);
+	
+	    if ($this->sign) {
+	        // *** apply digital signature to the document ***
+	        $pdfdoc = $this->getBuffer();
+	        $pdfdoc = substr($pdfdoc, 0, -1); // remove last newline
+	        $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
+	
+	        // --- HACK ADMED INÍCIO: SUPORTE A ASSINATURA REMOTA (VIDAAS) ---
+	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
+	            // 1. Nossa string base (o que queremos injetar)
+	            $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
+	            
+	            // 2. O Segredo: Pegamos o placeholder original que o TCPDF usou para calcular o XREF
+	            $original_placeholder = TCPDF_STATIC::$byterange_string;
+	            $tamanho_original = strlen($original_placeholder);
+	            
+	            // 3. Travamos o tamanho: Se a nossa string for menor, preenchemos com espaços
+	            // Isso garante que o startxref continue apontando para o byte exato.
+	            $new_byterange = str_pad($marker_string, $tamanho_original, ' ', STR_PAD_RIGHT);
+	            
+	            $pdfdoc = str_replace($original_placeholder, $new_byterange, $pdfdoc);
+	            
+	            $this->buffer = $pdfdoc;
+	            $this->bufferlen = strlen($this->buffer);
+	            if ($dest == 'S') { return $this->getBuffer(); }
+	        } else {
+	            // --- FLUXO ORIGINAL DO TCPDF (PARA SEU CERTIFICADO PFX) ---
+	            $byte_range = array();
+	            $byte_range[0] = 0;
+	
+	            // --- CORREÇÃO ADMED: BUSCA DINÂMICA DO PLACEHOLDER ---
+	            // Em vez de somar + 10 (chute), buscamos o caractere '<' real no objeto de assinatura
+	            $pos_byterange_str = strpos($pdfdoc, TCPDF_STATIC::$byterange_string);
+	            $byte_range[1] = strpos($pdfdoc, '<', $pos_byterange_str); 
+	            $byte_range[2] = strpos($pdfdoc, '>', $byte_range[1]) + 1; 
+	            
+	            $byte_range[3] = strlen($pdfdoc) - $byte_range[2];
+	            
+	            // Remove o placeholder para preparar o documento para assinatura
+	            $pdfdoc = substr($pdfdoc, 0, $byte_range[1]).substr($pdfdoc, $byte_range[2]);
+	            
+	            $byterange = sprintf('/ByteRange[0 %u %u %u]', $byte_range[1], $byte_range[2], $byte_range[3]);
+	            $byterange .= str_repeat(' ', ($byterange_string_len - strlen($byterange)));
+	            $pdfdoc = str_replace(TCPDF_STATIC::$byterange_string, $byterange, $pdfdoc);
+	            
+	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
+	            $f = TCPDF_STATIC::fopenLocal($tempdoc, 'wb');
+	            if (!$f) { $this->Error('Unable to create temporary file: '.$tempdoc); }
+	            $pdfdoc_length = strlen($pdfdoc);
+	            fwrite($f, $pdfdoc, $pdfdoc_length);
+	            fclose($f);
+	
+	            $tempsign = TCPDF_STATIC::getObjFilename('sig', $this->file_id);
+	            if (empty($this->signature_data['extracerts'])) {
+	                openssl_pkcs7_sign($tempdoc, $tempsign, $this->signature_data['signcert'], array($this->signature_data['privkey'], $this->signature_data['password']), array(), PKCS7_BINARY | PKCS7_DETACHED);
+	            } else {
+	                openssl_pkcs7_sign($tempdoc, $tempsign, $this->signature_data['signcert'], array($this->signature_data['privkey'], $this->signature_data['password']), array(), PKCS7_BINARY | PKCS7_DETACHED, $this->signature_data['extracerts']);
+	            }
+	            
+	            $signature = file_get_contents($tempsign);
+	            $signature = substr($signature, $pdfdoc_length);
+	            $signature = substr($signature, (strpos($signature, "%%EOF\n\n------") + 13));
+	            $tmparr = explode("\n\n", $signature);
+	            $signature = $tmparr[1];
+	            $signature = base64_decode(trim($signature));
+	            $signature = $this->applyTSA($signature);
+	            $signature = current(unpack('H*', $signature));
+	            $signature = str_pad($signature, $this->signature_max_length, '0');
+	            
+	            $this->buffer = substr($pdfdoc, 0, $byte_range[1]).'<'.$signature.'>'.substr($pdfdoc, $byte_range[1]);
+	            $this->bufferlen = strlen($this->buffer);
+	        }
+	    }
+	
+	    // O RESTANTE DA FUNÇÃO (Switch Case de Destino)
+	    switch($dest) {
+	        case 'I': {
+	            if (ob_get_contents()) { $this->Error('Some data has already been output'); }
+	            if (php_sapi_name() != 'cli') {
+	                header('Content-Type: application/pdf');
+	                header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
+	                header('Pragma: public');
+	                header('Expires: Sat, 26 Jul 1997 05:00:00 GMT');
+	                header('Last-Modified: '.gmdate('D, d M Y H:i:s').' GMT');
+	                header('Content-Disposition: inline; filename="' . rawurlencode(basename($name)) . '"; filename*=UTF-8\'\'' . rawurlencode(basename($name)));
+	                TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
+	            } else { echo $this->getBuffer(); }
+	            break;
+	        }
+	        case 'D': {
+	            if (ob_get_contents()) { $this->Error('Some data has already been output'); }
+	            header('Content-Description: File Transfer');
+	            header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
+	            header('Pragma: public');
+	            header('Expires: Sat, 26 Jul 1997 05:00:00 GMT');
+	            header('Last-Modified: '.gmdate('D, d M Y H:i:s').' GMT');
+	            header('Content-Type: application/pdf');
+	            header('Content-Disposition: attachment; filename="' . rawurlencode(basename($name)) . '"; filename*=UTF-8\'\'' . rawurlencode(basename($name)));
+	            header('Content-Transfer-Encoding: binary');
+	            TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
+	            break;
+	        }
+	        case 'F':
+	        case 'FI':
+	        case 'FD': {
+	            $f = TCPDF_STATIC::fopenLocal($name, 'wb');
+	            if (!$f) { $this->Error('Unable to create output file: '.$name); }
+	            fwrite($f, $this->getBuffer(), $this->bufferlen);
+	            fclose($f);
+	            if ($dest == 'FI') {
+	                header('Content-Type: application/pdf');
+	                header('Content-Disposition: inline; filename="'.basename($name).'"');
+	                TCPDF_STATIC::sendOutputData(file_get_contents($name), filesize($name));
+	            } elseif ($dest == 'FD') {
+	                header('Content-Type: application/pdf');
+	                header('Content-Disposition: attachment; filename="'.basename($name).'"');
+	                TCPDF_STATIC::sendOutputData(file_get_contents($name), filesize($name));
+	            }
+	            break;
+	        }
+	        case 'E': {
+	            $retval = 'Content-Type: application/pdf; name="'.$name.'"'."\r\n";
+	            $retval .= 'Content-Transfer-Encoding: base64'."\r\n";
+	            $retval .= 'Content-Disposition: attachment; filename="'.$name.'"'."\r\n\r\n";
+	            $retval .= chunk_split(base64_encode($this->getBuffer()), 76, "\r\n");
+	            return $retval;
+	        }
+	        case 'S': {
+	            return $this->getBuffer();
+	        }
+	        default: { $this->Error('Incorrect output destination: '.$dest); }
+	    }
+	    return '';
 	}
 
 	protected static $cleaned_ids = array();
