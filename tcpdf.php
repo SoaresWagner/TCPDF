@@ -7705,23 +7705,21 @@ class TCPDF {
 	 * @see Close()
 	 */
 	public function Output($name='doc.pdf', $dest='I') {
-	    // Finish document if necessary
 	    if ($this->state < 3) {
 	        $this->Close();
 	    }
-	    // Normalize parameters
 	    if (is_bool($dest)) {
 	        $dest = $dest ? 'D' : 'F';
 	    }
 	    $dest = strtoupper($dest);
 	
 	    if ($this->sign) {
-	        // *** apply digital signature to the document ***
 	        $pdfdoc = $this->getBuffer();
-	        $pdfdoc = substr($pdfdoc, 0, -1); // remove last newline
+	        $pdfdoc = substr($pdfdoc, 0, -1); // remove última quebra de linha
 	        $byterange_string_len = strlen(TCPDF_STATIC::$byterange_string);
 	
-	        // --- BLOCO 1: VIDAAS (ASSINATURA EXTERNA) ---
+	        // --- BLOCO 1: VIDAAS (EXTERNAL) ---
+	        // Lógica de substituição de marcadores para assinatura remota
 	        if (isset($this->signature_data['privkey']) && $this->signature_data['privkey'] === 'EXTERNAL') {
 	            $marker_string = '/ByteRange [0 @L-MARKER@ @R-MARKER@ @N-MARKER@]';
 	            $original_placeholder = TCPDF_STATIC::$byterange_string;
@@ -7734,26 +7732,30 @@ class TCPDF {
 	            $this->bufferlen = strlen($this->buffer);
 	            if ($dest == 'S') { return $this->getBuffer(); }
 	        } 
-	        // --- BLOCO 2: PFX ORIGINAL (CÓPIA FIEL DO SEU CÓDIGO FUNCIONAL) ---
+	        // --- BLOCO 2: PFX (DINÂMICO E BLINDADO) ---
+	        // Usa busca dinâmica pelo caractere '<' para evitar corrupção de XREF
 	        else {
 	            $byte_range = array();
 	            $byte_range[0] = 0;
-	            $byte_range[1] = strpos($pdfdoc, TCPDF_STATIC::$byterange_string) + $byterange_string_len + 10;
+	
+	            // Busca o início real da assinatura (<) em vez de usar o +10 fixo
+	            $pos_byterange = strpos($pdfdoc, TCPDF_STATIC::$byterange_string);
+	            $pos_contents = strpos($pdfdoc, '/Contents', $pos_byterange);
+	            $byte_range[1] = strpos($pdfdoc, '<', $pos_contents); 
+	
 	            $byte_range[2] = $byte_range[1] + $this->signature_max_length + 2;
 	            $byte_range[3] = strlen($pdfdoc) - $byte_range[2];
 	            
-	            // Fatiamento do documento conforme a lógica original
-	            $pdfdoc = substr($pdfdoc, 0, $byte_range[1]).substr($pdfdoc, $byte_range[2]);
+	            $pdfdoc_base = substr($pdfdoc, 0, $byte_range[1]).substr($pdfdoc, $byte_range[2]);
 	            
 	            $byterange = sprintf('/ByteRange[0 %u %u %u]', $byte_range[1], $byte_range[2], $byte_range[3]);
 	            $byterange .= str_repeat(' ', ($byterange_string_len - strlen($byterange)));
-	            $pdfdoc = str_replace(TCPDF_STATIC::$byterange_string, $byterange, $pdfdoc);
+	            $pdfdoc_base = str_replace(TCPDF_STATIC::$byterange_string, $byterange, $pdfdoc_base);
 	            
 	            $tempdoc = TCPDF_STATIC::getObjFilename('doc', $this->file_id);
 	            $f = TCPDF_STATIC::fopenLocal($tempdoc, 'wb');
 	            if (!$f) { $this->Error('Unable to create temporary file: '.$tempdoc); }
-	            $pdfdoc_length = strlen($pdfdoc);
-	            fwrite($f, $pdfdoc, $pdfdoc_length);
+	            fwrite($f, $pdfdoc_base, strlen($pdfdoc_base));
 	            fclose($f);
 	
 	            $tempsign = TCPDF_STATIC::getObjFilename('sig', $this->file_id);
@@ -7764,34 +7766,28 @@ class TCPDF {
 	            }
 	            
 	            $signature = file_get_contents($tempsign);
-	            $signature = substr($signature, $pdfdoc_length);
+	            $signature = substr($signature, strlen($pdfdoc_base));
 	            $signature = substr($signature, (strpos($signature, "%%EOF\n\n------") + 13));
 	            $tmparr = explode("\n\n", $signature);
-	            $signature = $tmparr[1];
-	            $signature = base64_decode(trim($signature));
-	            $signature = $this->applyTSA($signature);
-	            $signature = current(unpack('H*', $signature));
+	            $signature = base64_decode(trim($tmparr[1]));
+	            $signature = current(unpack('H*', $this->applyTSA($signature)));
 	            $signature = str_pad($signature, $this->signature_max_length, '0');
 	            
-	            // Reconstrução final do buffer
-	            $this->buffer = substr($pdfdoc, 0, $byte_range[1]).'<'.$signature.'>'.substr($pdfdoc, $byte_range[1]);
+	            $this->buffer = substr($pdfdoc_base, 0, $byte_range[1]).'<'.$signature.'>'.substr($pdfdoc_base, $byte_range[1]);
 	            $this->bufferlen = strlen($this->buffer);
 	        }
 	    }
 	
-	    // Switch de destino (I, D, F, S)
 	    switch($dest) {
 	        case 'I':
 	            if (ob_get_contents()) { $this->Error('Some data has already been output'); }
-	            if (php_sapi_name() != 'cli') {
-	                header('Content-Type: application/pdf');
-	                header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
-	                header('Pragma: public');
-	                header('Expires: Sat, 26 Jul 1997 05:00:00 GMT');
-	                header('Last-Modified: '.gmdate('D, d M Y H:i:s').' GMT');
-	                header('Content-Disposition: inline; filename="' . rawurlencode(basename($name)) . '"; filename*=UTF-8\'\'' . rawurlencode(basename($name)));
-	                TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
-	            } else { echo $this->getBuffer(); }
+	            header('Content-Type: application/pdf');
+	            header('Cache-Control: private, must-revalidate, post-check=0, pre-check=0, max-age=1');
+	            header('Pragma: public');
+	            header('Expires: Sat, 26 Jul 1997 05:00:00 GMT');
+	            header('Last-Modified: '.gmdate('D, d M Y H:i:s').' GMT');
+	            header('Content-Disposition: inline; filename="' . rawurlencode(basename($name)) . '"; filename*=UTF-8\'\'' . rawurlencode(basename($name)));
+	            TCPDF_STATIC::sendOutputData($this->getBuffer(), $this->bufferlen);
 	            break;
 	        case 'D':
 	            header('Content-Type: application/pdf');
